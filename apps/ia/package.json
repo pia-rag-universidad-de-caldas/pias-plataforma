@@ -1,0 +1,9 @@
+{
+  "name": "@pias/ia",
+  "private": true,
+  "scripts": {
+    "dev": "uv run fastapi dev main.py --port 8001",
+    "test": "uv run pytest",
+    "lint": "uv run ruff check . && uv run ruff format --check ."
+  }
+}

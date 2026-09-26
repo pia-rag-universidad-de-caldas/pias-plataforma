@@ -1,0 +1,12 @@
+node_modules/
+.turbo/
+dist/
+.next/
+.astro/
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.DS_Store
+infra/muestra/privado/

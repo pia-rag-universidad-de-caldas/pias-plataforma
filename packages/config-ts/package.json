@@ -1,0 +1,8 @@
+{
+  "name": "@pias/config-ts",
+  "private": true,
+  "files": [
+    "base.json"
+  ],
+  "version": "0.0.0"
+}

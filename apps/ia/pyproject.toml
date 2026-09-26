@@ -1,0 +1,38 @@
+[project]
+name = "ia"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "sga-encoder", email = "sebastian.garzon54795@ucaldas.edu.co" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "instructor>=1.17.0",
+    "langgraph>=1.2.12",
+    "litellm>=1.102.1",
+    "neo4j>=6.3.1",
+    "neo4j-graphrag>=1.21.0",
+    "pydantic-settings>=2.15.0",
+]
+
+[project.scripts]
+ia = "ia:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

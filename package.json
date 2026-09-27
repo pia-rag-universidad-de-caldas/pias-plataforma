@@ -16,7 +16,9 @@
     "modelos": "bash infra/descargar-modelos.sh",
     "seed": "bash infra/seed.sh",
     "prepare": "lefthook install",
-    "env:init": "for f in apps/*/.env.example; do [ -f \"${f%.example}\" ] || cp \"$f\" \"${f%.example}\"; done"
+    "env:init": "for f in apps/*/.env.example; do [ -f \"${f%.example}\" ] || cp \"$f\" \"${f%.example}\"; done",
+    "convenciones:revisar": "node scripts/revisar-convenciones.mjs",
+    "convenciones:test": "node --test 'scripts/convenciones/__pruebas__/*.test.mjs'"
   },
   "keywords": [],
   "author": "",
@@ -36,6 +38,7 @@
     "lefthook": "^2.1.14",
     "prettier": "^3.9.9",
     "prettier-plugin-astro": "^1.1.0",
-    "turbo": "^2.11.4"
+    "turbo": "^2.11.4",
+    "typescript": "^6.0.3"
   }
 }

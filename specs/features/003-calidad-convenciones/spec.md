@@ -1,6 +1,6 @@
 # 003 · Revisor de convenciones de interfaz y modelos (`pnpm convenciones:revisar`)
 
-**Estado:** propuesta
+**Estado:** implementado ✅
 
 ## Qué hace
 
@@ -19,7 +19,7 @@ Uso:
 - `--proyecto <nombre>` limita la revisión a una app o paquete (`admin`, `api`, `ui`…).
 - `--cambios` revisa solo archivos modificados respecto a `origin/main` (uso en pre-push).
 
-Además, ESLint en `apps/admin` y `packages/ui` marca en el editor `estilo-en-linea` y `tailwind-fuera-de-ui`, y CI corre el revisor.
+Además, ESLint en `apps/admin` marca en el editor `estilo-en-linea` y `className` con literales fuera de `components/ui/`, CI corre el revisor y lefthook lo corre con `--cambios` en pre-push.
 
 ## Por qué
 
@@ -27,20 +27,20 @@ Además, ESLint en `apps/admin` y `packages/ui` marca en el editor `estilo-en-li
 
 ## Criterios de aceptación
 
-- [ ] `pnpm convenciones:revisar` sobre un árbol de pruebas detecta cada una de las 5 reglas con ruta y línea correctas.
-- [ ] Un `className="flex gap-2"` dentro de `packages/ui/src/components/ui/boton.tsx` o `apps/admin/src/components/ui/x.tsx` no se reporta; el mismo en `apps/admin/src/features/x/y.tsx` sí.
-- [ ] `className={props.className}` o `class={clase}` sin literales utilitarios fuera de ui no se reporta (pasar clases por props no es escribir Tailwind); un literal dentro de `cn("p-4", ...)` sí.
-- [ ] `style=` se reporta en cualquier ruta, incluida `components/ui/`.
-- [ ] `globals.css` con solo `@import "tailwindcss"`, `@theme` y reset no se reporta; si contiene `.tarjeta { ... }` o `@apply`, sí.
-- [ ] `interface`/`class`/`enum` en `apps/api/src/domain/models/`, `apps/admin/src/features/x/models/` o `apps/ia/src/ia/models/` no se reporta; en `apps/api/src/domain/solicitud.ts` o `apps/ia/src/ia/agentes.py` sí.
-- [ ] No se reportan las excepciones de §4.1: clases con `@Controller`, `@Module`, `@Injectable`, guards/interceptores de Nest, interfaces en `apps/api/src/ports/`, props anónimas en línea y archivos de prueba (`*.spec.ts`, `*.test.ts(x)`, `test_*.py`, `tests/`).
-- [ ] Ignora `node_modules/`, `dist/`, `.next/`, `.astro/`, `__pycache__/`, `.venv/` y código generado (`packages/api-client/src/generado/`).
-- [ ] Un proyecto con código fuente y sin carpeta `models/` genera `proyecto-sin-models`; un paquete solo de configuración (`packages/config-ts`) no.
-- [ ] Salida con código 0 y mensaje "Sin incumplimientos" cuando no hay hallazgos; código 1 si los hay.
-- [ ] `--json`, `--proyecto` y `--cambios` funcionan como se describe.
-- [ ] ESLint en `apps/admin` y `packages/ui` marca `style=` como error y literales utilitarios en `className` fuera de `components/ui/` como error.
-- [ ] CI ejecuta `pnpm convenciones:revisar` y falla si hay hallazgos.
-- [ ] El revisor corre sin dependencias nuevas de sistema (Node 24 del repo) en menos de 10 s sobre el monorepo actual.
+- [x] `pnpm convenciones:revisar` sobre un árbol de pruebas detecta cada una de las 5 reglas con ruta y línea correctas.
+- [x] Un `className="flex gap-2"` dentro de `packages/ui/src/components/ui/boton.tsx` o `apps/admin/src/components/ui/x.tsx` no se reporta; el mismo en `apps/admin/src/features/x/y.tsx` sí.
+- [x] `className={props.className}` o `class={clase}` sin literales utilitarios fuera de ui no se reporta (pasar clases por props no es escribir Tailwind); un literal dentro de `cn("p-4", ...)` sí.
+- [x] `style=` se reporta en cualquier ruta, incluida `components/ui/`.
+- [x] `globals.css` con solo `@import "tailwindcss"`, `@theme` y reset no se reporta; si contiene `.tarjeta { ... }` o `@apply`, sí.
+- [x] `interface`/`class`/`enum` en `apps/api/src/domain/models/`, `apps/admin/src/features/x/models/` o `apps/ia/src/ia/models/` no se reporta; en `apps/api/src/domain/solicitud.ts` o `apps/ia/src/ia/agentes.py` sí.
+- [x] No se reportan las excepciones de §4.1: clases con `@Controller`, `@Module`, `@Injectable`, guards/interceptores de Nest, interfaces en `apps/api/src/ports/`, props anónimas en línea y archivos de prueba (`*.spec.ts`, `*.test.ts(x)`, `test_*.py`, `tests/`).
+- [x] Ignora `node_modules/`, `dist/`, `.next/`, `.astro/`, `__pycache__/`, `.venv/` y código generado (`packages/api-client/src/generated/`).
+- [x] Un proyecto con código fuente y sin carpeta `models/` genera `proyecto-sin-models`; un paquete solo de configuración (`packages/config-ts`) no.
+- [x] Salida con código 0 y mensaje "Sin incumplimientos" cuando no hay hallazgos; código 1 si los hay.
+- [x] `--json`, `--proyecto` y `--cambios` funcionan como se describe.
+- [x] ESLint en `apps/admin` marca `style=` y literales en `className` fuera de `components/ui/` (como `warn` hasta corregir lo heredado; luego `error`).
+- [x] CI ejecuta `pnpm convenciones:revisar` y falla si hay hallazgos.
+- [x] El revisor corre sin dependencias nuevas de sistema (Node 24 del repo) en menos de 10 s sobre el monorepo actual.
 
 ## Fuera de alcance
 

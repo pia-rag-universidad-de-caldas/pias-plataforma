@@ -12,6 +12,12 @@ pre-commit:
       run: uvx ruff check --fix {staged_files} && uvx ruff format {staged_files}
       stage_fixed: true
 
+pre-push:
+  commands:
+    convenciones:
+      # Informativo (no bloquea) mientras dure la fase de avisos, igual que en CI.
+      run: pnpm convenciones:revisar --cambios || true
+
 commit-msg:
   commands:
     commitlint:

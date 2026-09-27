@@ -5,10 +5,10 @@ Orden de iteraciones de `docs/documento-de-la-verdad.md` §20. Cada entrada se c
 ## Hecho ✅
 
 - **Esqueleto** — monorepo pnpm + Turborepo, apps vacías (`admin`, `publico`, `api`, `ia`, `ingesta`), Docker Compose con perfiles, realm de Keycloak, migraciones Neo4j iniciales, CI mínima.
+- **003 · Convenciones de interfaz y modelos** — §4.1 del documento; `pnpm convenciones:revisar` revisa Tailwind fuera de ui, estilos en línea, CSS y `models/`; ESLint en admin, CI y pre-push (`features/003-calidad-convenciones`).
 
 ## Siguiente 🔜
 
-0. **003 · Convenciones de interfaz y modelos** — revisor `pnpm convenciones:revisar` + reglas ESLint + paso en CI (`features/003-calidad-convenciones`).
 1. **Iteración 1** — terminar base: esquema Neo4j completo, contrato OpenAPI inicial, `generate:api` en `packages/api-client`.
 
 ## Backlog 💡

@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  --fondo: #fff;
+}
+
+.dark {
+  --fondo: #000;
+}
+
+@theme inline {
+  --color-fondo: var(--fondo);
+}
+
+body {
+  margin: 0;
+}
+
+.tarjeta {
+  padding: 1rem;
+}
+
+h1 {
+  @apply text-xl;
+}

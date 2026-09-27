@@ -12,7 +12,7 @@
 - [x] Pruebas con `node --test` sobre los fixtures, todas en verde.
 - [x] Reglas ESLint en `apps/admin` (en `warn`) para `style` y literales de `className` fuera de `components/ui/`.
 - [x] Paso en CI (`continue-on-error` al inicio) y pre-push en `lefthook.yml` con `--cambios`.
-- [ ] Correr sobre el repo actual y anotar los hallazgos heredados por app en la descripción del PR.
+- [x] Correr sobre el repo actual y anotar los hallazgos heredados por app en la descripción del PR.
 - [x] Validar contra los criterios de aceptación de `spec.md`.
 - [x] Mover la feature a "Hecho" en `../../constitution/roadmap.md`.
 

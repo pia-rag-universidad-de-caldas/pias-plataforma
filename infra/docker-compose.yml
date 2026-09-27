@@ -1,8 +1,22 @@
 name: pias
 
+# Perfiles (docker compose --profile):
+#   full   -> todo (equivalente al pnpm infra:up de siempre)
+#   api    -> lo que necesita apps/api (Neo4j, Redis, Keycloak para validar tokens)
+#   admin  -> lo que necesita apps/admin (Keycloak, para el login)
+#   ia     -> lo que necesita apps/ia y apps/ingesta (Neo4j, Redis, Ollama, TEI)
+#
+# apps/publico (Astro) no necesita ningún contenedor de infra directamente:
+# solo consume la API por HTTP.
+#
+# Si el mapeo de arriba no calza con lo que de verdad usa cada app, ajusta
+# la lista de "profiles:" de cada servicio abajo: es la única fuente de verdad
+# que usa scripts/dev-menu.sh para decidir qué levantar.
+
 services:
   neo4j:
     image: neo4j:2026.07.1
+    profiles: ["full", "api", "ia"]
     ports:
       - "7474:7474" # navegador web
       - "7687:7687" # protocolo Bolt
@@ -22,6 +36,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.0
+    profiles: ["full", "admin", "api"]
     command: start-dev --import-realm
     ports:
       - "8080:8080"
@@ -34,6 +49,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    profiles: ["full", "api", "ia"]
     ports:
       - "6379:6379"
     volumes:
@@ -41,6 +57,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    profiles: ["full", "ia"]
     ports:
       - "11434:11434"
     volumes:
@@ -57,6 +74,7 @@ services:
 
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    profiles: ["full", "ia"]
     command: --model-id BAAI/bge-m3
     ports:
       - "8081:80"

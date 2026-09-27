@@ -18,7 +18,8 @@
     "prepare": "lefthook install",
     "env:init": "for f in apps/*/.env.example; do [ -f \"${f%.example}\" ] || cp \"$f\" \"${f%.example}\"; done",
     "convenciones:revisar": "node scripts/revisar-convenciones.mjs",
-    "convenciones:test": "node --test 'scripts/convenciones/__pruebas__/*.test.mjs'"
+    "convenciones:test": "node --test 'scripts/convenciones/__pruebas__/*.test.mjs'",
+    "flujo:prueba": "bash scripts/flujo-prueba.sh"
   },
   "keywords": [],
   "author": "",

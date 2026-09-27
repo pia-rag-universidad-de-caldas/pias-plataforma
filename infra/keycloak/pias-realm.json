@@ -1,0 +1,65 @@
+{
+  "realm": "pias",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "profesor" },
+      { "name": "revisor_facultad" },
+      { "name": "consejo_academico" },
+      { "name": "administrativo" },
+      { "name": "admin_sistema" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "pias-admin",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "pias-api",
+      "bearerOnly": true
+    }
+  ],
+  "users": [
+    {
+      "username": "profe",
+      "enabled": true,
+      "email": "profe@pias.dev",
+      "firstName": "Profe",
+      "lastName": "Prueba",
+      "credentials": [{ "type": "password", "value": "profe123" }],
+      "realmRoles": ["profesor"]
+    },
+    {
+      "username": "facultad",
+      "enabled": true,
+      "email": "facultad@pias.dev",
+      "firstName": "Revisor",
+      "lastName": "Prueba",
+      "credentials": [{ "type": "password", "value": "facultad123" }],
+      "realmRoles": ["revisor_facultad"]
+    },
+    {
+      "username": "consejo",
+      "enabled": true,
+      "email": "consejo@pias.dev",
+      "firstName": "Consejo",
+      "lastName": "Prueba",
+      "credentials": [{ "type": "password", "value": "consejo123" }],
+      "realmRoles": ["consejo_academico"]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@pias.dev",
+      "firstName": "Admin",
+      "lastName": "Prueba",
+      "credentials": [{ "type": "password", "value": "admin123" }],
+      "realmRoles": ["admin_sistema"]
+    }
+  ]
+}

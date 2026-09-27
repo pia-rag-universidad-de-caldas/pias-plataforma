@@ -1,0 +1,9 @@
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    # Solo si Ollama no detecta la GPU (ver logs), descomenta:
+    # environment:
+    #   HSA_OVERRIDE_GFX_VERSION: "11.0.1"

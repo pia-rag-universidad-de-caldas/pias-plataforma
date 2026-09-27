@@ -1,0 +1,71 @@
+name: pias
+
+services:
+  neo4j:
+    image: neo4j:2026.07.1
+    ports:
+      - "7474:7474" # navegador web
+      - "7687:7687" # protocolo Bolt
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-pias-dev-2026}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_dbms_usage__report_enabled: "false"
+    volumes:
+      - neo4j-data:/data
+      - ./neo4j/migraciones:/migraciones:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    command: start-dev --import-realm
+    ports:
+      - "8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+      - keycloak-data:/opt/keycloak/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Descomenta si tienes GPU NVIDIA configurada (Parte B1, Paso 4).
+    # Para GPU AMD se usa docker-compose.amd.yml (Paso 1b):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    command: --model-id BAAI/bge-m3
+    ports:
+      - "8081:80"
+    volumes:
+      - tei-data:/data
+
+volumes:
+  neo4j-data:
+  keycloak-data:
+  redis-data:
+  ollama-data:
+  tei-data:

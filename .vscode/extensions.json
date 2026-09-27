@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "charliermarsh.ruff",
+    "ms-python.python",
+    "bradlc.vscode-tailwindcss",
+    "astro-build.astro-vscode",
+    "ms-azuretools.vscode-docker",
+    "neo4j-extensions.neo4j-for-vscode",
+    "ms-vscode-remote.remote-wsl",
+    "github.vscode-pull-request-github"
+  ]
+}

@@ -2,3 +2,5 @@ pnpm-lock.yaml
 **/generated/**
 .next
 dist
+# Fixtures del revisor de convenciones: las pruebas dependen de sus números de línea.
+scripts/convenciones/__pruebas__/fixtures/

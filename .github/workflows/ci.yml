@@ -20,3 +20,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint test build
+      - run: pnpm convenciones:test
+      # Revisor de §4.1 (spec 003). No bloquea hasta corregir los incumplimientos heredados.
+      - run: pnpm convenciones:revisar
+        continue-on-error: true

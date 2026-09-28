@@ -10,3 +10,4 @@ __pycache__/
 .env.local
 .DS_Store
 infra/muestra/privado/
+.dev-menu/

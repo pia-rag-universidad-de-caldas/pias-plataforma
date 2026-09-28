@@ -6,15 +6,14 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   // Convenciones de interfaz (documento de la verdad §4.1, spec 003).
-  // En "warn" hasta corregir los incumplimientos heredados del esqueleto.
   {
     rules: {
       "react/forbid-dom-props": [
-        "warn",
+        "error",
         { forbid: [{ propName: "style", message: "Sin estilos en línea (§4.1)." }] },
       ],
       "react/forbid-component-props": [
-        "warn",
+        "error",
         { forbid: [{ propName: "style", message: "Sin estilos en línea (§4.1)." }] },
       ],
     },
@@ -24,7 +23,7 @@ const eslintConfig = defineConfig([
     ignores: ["src/components/ui/**"],
     rules: {
       "no-restricted-syntax": [
-        "warn",
+        "error",
         {
           selector: "JSXAttribute[name.name='className'] :matches(Literal, TemplateLiteral)",
           message:

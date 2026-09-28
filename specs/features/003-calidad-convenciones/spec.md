@@ -38,7 +38,7 @@ Además, ESLint en `apps/admin` marca en el editor `estilo-en-linea` y `classNam
 - [x] Un proyecto con código fuente y sin carpeta `models/` genera `proyecto-sin-models`; un paquete solo de configuración (`packages/config-ts`) no.
 - [x] Salida con código 0 y mensaje "Sin incumplimientos" cuando no hay hallazgos; código 1 si los hay.
 - [x] `--json`, `--proyecto` y `--cambios` funcionan como se describe.
-- [x] ESLint en `apps/admin` marca `style=` y literales en `className` fuera de `components/ui/` (como `warn` hasta corregir lo heredado; luego `error`).
+- [x] ESLint en `apps/admin` marca `style=` y literales en `className` fuera de `components/ui/` como `error` (admin ya sin incumplimientos heredados).
 - [x] CI ejecuta `pnpm convenciones:revisar` y falla si hay hallazgos.
 - [x] El revisor corre sin dependencias nuevas de sistema (Node 24 del repo) en menos de 10 s sobre el monorepo actual.
 

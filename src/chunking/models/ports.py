@@ -138,42 +138,16 @@ class SectionChunker(Protocol):
         ...
 
 
-class ExperimentStore(Protocol):
-    """The experiment record in the graph (through data, feature 025)."""
+class SelectionStore(Protocol):
+    """What resolving the files of an experiment reads from the record (ExperimentRunner.resolve)."""
 
-    def save(self, batch: GraphBatch) -> None:
-        """Writes the batch all or nothing; DocumentError if data rejects it."""
-        ...
-
-    def conversion(self, conversion_id: str) -> ConvertedDocument | None:
-        """A conversion already stored (EXP_DOCUMENTO converted without error), or None."""
-        ...
-
-    def has_conversion(self, conversion_id: str) -> bool: ...
+    def documents(self, experiment_id: str) -> list[ExperimentDocument]: ...
 
     def source(self, conversion_id: str) -> SourceDocument | None:
         """What ingesta said of the file of a stored conversion (to repeat its documents in another experiment)."""
         ...
 
-    def experiment(self, id: str) -> ExperimentRecord | None: ...
-
-    def experiments(self) -> list[ExperimentRecord]:
-        """Every experiment in the graph, newest first."""
-        ...
-
-    def documents(self, experiment_id: str) -> list[ExperimentDocument]: ...
-
-    def content(self, conversion_id: str) -> str | None:
-        """The stored JSON of a conversion (its `contenido`), as stored."""
-        ...
-
-    def conversion_json(self, conversion_id: str) -> str | None:
-        """The parameters of a stored conversion, as the JSON stored."""
-        ...
-
-    def stored_conversion(self, conversion_id: str) -> ConversionProperties | None:
-        """An EXP_DOCUMENTO as stored (to promote it to an official JSON, feature 028), or None."""
-        ...
+    def has_conversion(self, conversion_id: str) -> bool: ...
 
     def official(self, sha256: str) -> OfficialDocument | None:
         """The official JSON of a document (feature 028), or None if it has none."""
@@ -186,10 +160,55 @@ class ExperimentStore(Protocol):
         node that wasn't promoted (no `contenido`) comes with `content` None."""
         ...
 
+
+class RecordingStore(Protocol):
+    """What running an experiment needs: reuse a conversion and record each step (ExperimentRunner.run)."""
+
+    def save(self, batch: GraphBatch) -> None:
+        """Writes the batch all or nothing; DocumentError if data rejects it."""
+        ...
+
+    def conversion(self, conversion_id: str) -> ConvertedDocument | None:
+        """A conversion already stored (EXP_DOCUMENTO converted without error), or None."""
+        ...
+
+
+class PromotionStore(Protocol):
+    """What promoting an experiment to the official graph reads and writes (Promotion.run, feature 028)."""
+
+    def documents(self, experiment_id: str) -> list[ExperimentDocument]: ...
+
+    def save(self, batch: GraphBatch) -> None: ...
+
+    def stored_conversion(self, conversion_id: str) -> ConversionProperties | None:
+        """An EXP_DOCUMENTO as stored (to promote it to an official JSON, feature 028), or None."""
+        ...
+
+    def official(self, sha256: str) -> OfficialDocument | None: ...
+
     def sections(self, experiment_id: str, document: ExperimentDocument) -> list[ExperimentSection]: ...
 
     def chunks(self, experiment_id: str, document: ExperimentDocument) -> list[tuple[int, ChunkPiece]]:
         """(section index, chunk) of a document in an experiment, in order."""
+        ...
+
+
+class ExperimentStore(SelectionStore, RecordingStore, PromotionStore, Protocol):
+    """The whole experiment record in the graph (through data, feature 025): the roles above and what the API reads
+    and changes (experiments, their stored conversions, their scores). The domain asks only for the role it uses."""
+
+    def experiment(self, id: str) -> ExperimentRecord | None: ...
+
+    def experiments(self) -> list[ExperimentRecord]:
+        """Every experiment in the graph, newest first."""
+        ...
+
+    def content(self, conversion_id: str) -> str | None:
+        """The stored JSON of a conversion (its `contenido`), as stored."""
+        ...
+
+    def conversion_json(self, conversion_id: str) -> str | None:
+        """The parameters of a stored conversion, as the JSON stored."""
         ...
 
     def delete(self, id: str) -> bool:

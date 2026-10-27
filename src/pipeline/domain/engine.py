@@ -147,6 +147,45 @@ def _waiting_for(run: PipelineRun, stage: str, actor: str | None, kind: str) -> 
     return waiting, step, cycle
 
 
+def _retry(
+    run: PipelineRun, cycle: Stage, step: Stage, scored: Iteration, waiting: Waiting, changes: JsonObject, now: str
+) -> PipelineRun:
+    """Closes the iteration as retried and opens the next one, with its configuration plus `changes`, at the start
+    of the cycle."""
+    if waiting.exhausted:
+        raise ConflictError(f"the cycle {cycle.id!r} reached max_iterations ({cycle.max_iterations})")
+    run = _record(run, step, now, "done", {"decision": "retry", "iteration": scored.index})
+    closed = replace(scored, status=IterationStatus.RETRIED, finished=now)
+    following = Iteration(cycle.id, scored.index + 1, deep_merge(scored.config, changes), now)
+    return replace(
+        run,
+        iterations=(*_with(run, closed), following),
+        cursor=Cursor(run.cursor.stage, 0),
+        started=now,
+    )
+
+
+def _approve(run: PipelineRun, cycle: Stage, step: Stage, index: int, now: str) -> PipelineRun:
+    """Approves iteration `index` of the cycle (its artifacts, approved, go to the run), discards the running one and
+    goes on to the next stage."""
+    chosen = next((i for i in run.iterations if i.stage == cycle.id and i.index == index), None)
+    if chosen is None:
+        raise InvalidRequest(f"the cycle {cycle.id!r} has no iteration {index}")
+    run = _record(run, step, now, "done", {"decision": "approve", "iteration": index})
+    iterations = tuple(
+        i
+        if i.stage != cycle.id
+        else replace(i, status=IterationStatus.APPROVED, finished=i.finished or now)
+        if i.index == index
+        else replace(i, status=IterationStatus.DISCARDED, finished=now)
+        if i.status == IterationStatus.RUNNING
+        else i
+        for i in run.iterations
+    )
+    artifacts = {**run.artifacts, **{approved(k): v for k, v in chosen.artifacts.items()}}
+    return _enter(replace(run, iterations=iterations, artifacts=artifacts, cursor=Cursor(run.cursor.stage + 1)), now)
+
+
 class Engine:
     @staticmethod
     def new(id: str, request: RunRequest, template: Template, now: str) -> PipelineRun:
@@ -256,38 +295,10 @@ class Engine:
         scored = replace(iteration, score=decision.score if decision.score is not None else iteration.score)
         run = replace(run, iterations=_with(run, scored), waiting=None, status=RunStatus.RUNNING)
         if decision.kind == DecisionKind.RETRY:
-            if waiting.exhausted:
-                raise ConflictError(f"the cycle {cycle.id!r} reached max_iterations ({cycle.max_iterations})")
-            run = _record(run, step, now, "done", {"decision": "retry", "iteration": iteration.index})
-            closed = replace(scored, status=IterationStatus.RETRIED, finished=now)
-            following = Iteration(cycle.id, iteration.index + 1, deep_merge(iteration.config, decision.next), now)
-            return replace(
-                run,
-                iterations=(*_with(run, closed), following),
-                cursor=Cursor(run.cursor.stage, 0),
-                started=now,
-            )
+            return _retry(run, cycle, step, scored, waiting, decision.next, now)
         if decision.next:
             raise InvalidRequest("`next` only goes with retry")
-        index = decision.iteration or iteration.index
-        chosen = next((i for i in run.iterations if i.stage == cycle.id and i.index == index), None)
-        if chosen is None:
-            raise InvalidRequest(f"the cycle {cycle.id!r} has no iteration {index}")
-        run = _record(run, step, now, "done", {"decision": "approve", "iteration": index})
-        iterations = tuple(
-            i
-            if i.stage != cycle.id
-            else replace(i, status=IterationStatus.APPROVED, finished=i.finished or now)
-            if i.index == index
-            else replace(i, status=IterationStatus.DISCARDED, finished=now)
-            if i.status == IterationStatus.RUNNING
-            else i
-            for i in run.iterations
-        )
-        artifacts = {**run.artifacts, **{approved(k): v for k, v in chosen.artifacts.items()}}
-        return _enter(
-            replace(run, iterations=iterations, artifacts=artifacts, cursor=Cursor(run.cursor.stage + 1)), now
-        )
+        return _approve(run, cycle, step, decision.iteration or iteration.index, now)
 
     @staticmethod
     def complete(run: PipelineRun, completion: Completion, stage: str, now: str) -> PipelineRun:

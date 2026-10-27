@@ -3,7 +3,7 @@
 from typing import ClassVar
 
 from ingesta.config import LEVELS
-from ingesta.models import FileAdapter, OrganizationPlan, SourceFile
+from ingesta.models import FileReader, OrganizationPlan, SourceFile
 from ingesta.utils import NaturalKey, natural_key
 
 # (incomplete, unknown year, year, next folders, name)
@@ -48,7 +48,7 @@ class Discovery:
         )
 
     @staticmethod
-    def discover(base: FileAdapter) -> tuple[list[SourceFile], list[str]]:
+    def discover(base: FileReader) -> tuple[list[SourceFile], list[str]]:
         """Returns (files in processing order, paths of the ignored hidden files)."""
         found: list[SourceFile] = []
         hidden: list[str] = []
@@ -61,7 +61,7 @@ class Discovery:
         return found, hidden
 
     @staticmethod
-    def plan(base: FileAdapter, processed: set[str]) -> OrganizationPlan:
+    def plan(base: FileReader, processed: set[str]) -> OrganizationPlan:
         """A file is new if its path in base/ is not in the memory."""
         found, hidden = Discovery.discover(base)
         new = [f for f in found if f.path not in processed]

@@ -24,7 +24,6 @@ from chunking.models import (
     ExperimentDocument,
     ExperimentRecord,
     ExperimentSection,
-    ExperimentStore,
     GraphBatch,
     GraphLabel,
     GraphLink,
@@ -37,6 +36,7 @@ from chunking.models import (
     OfficialSectionProperties,
     PromotionKind,
     PromotionOutcome,
+    PromotionStore,
     SourceDocument,
     rule_name,
 )
@@ -142,7 +142,7 @@ class Promotion:
         return GraphBatch(nodes, links, replace_from=root)
 
     @staticmethod
-    def run(store: ExperimentStore, record: ExperimentRecord, at: str) -> PromotionOutcome:
+    def run(store: PromotionStore, record: ExperimentRecord, at: str) -> PromotionOutcome:
         """Promotes every document of the experiment that went well; the others (and the ones data rejects) are
         listed as failed. SinkError (data down) stops it: what was promoted stays (each document is atomic)."""
         kind = Promotion.kind(record)
@@ -167,7 +167,7 @@ class Promotion:
 
     @staticmethod
     def _batch(
-        store: ExperimentStore, experiment: str, kind: PromotionKind, document: ExperimentDocument, at: str
+        store: PromotionStore, experiment: str, kind: PromotionKind, document: ExperimentDocument, at: str
     ) -> GraphBatch:
         if kind == PromotionKind.CONVERSION:
             stored = store.stored_conversion(document.conversion_id)

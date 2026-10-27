@@ -11,7 +11,8 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from ingesta.adapters import LocalFileAdapter, SQLORMAdapter
-from ingesta.models import FileAdapter, ORMAdapter
+from ingesta.models import CategoryRepository, FileAdapter, FileRepository, ORMAdapter, RunRepository
+from ingesta.repository import DbCategoryRepository, DbFileRepository, DbRunRepository
 from ingesta.tables import TABLES
 
 
@@ -35,6 +36,18 @@ def _memory(settings: Annotated[ApiSettings, Depends(_settings)]) -> Iterator[OR
         data.close()
 
 
+def _files(memory: Annotated[ORMAdapter, Depends(_memory)]) -> FileRepository:
+    return DbFileRepository(memory)
+
+
+def _categories(memory: Annotated[ORMAdapter, Depends(_memory)]) -> CategoryRepository:
+    return DbCategoryRepository(memory)
+
+
+def _runs(memory: Annotated[ORMAdapter, Depends(_memory)]) -> RunRepository:
+    return DbRunRepository(memory)
+
+
 def _base(settings: Annotated[ApiSettings, Depends(_settings)]) -> FileAdapter:
     return LocalFileAdapter(settings.base)
 
@@ -46,5 +59,10 @@ def _ingest(settings: Annotated[ApiSettings, Depends(_settings)]) -> FileAdapter
 # Types for route parameters: `def route(memory: Memory) -> ...`.
 Settings = Annotated[ApiSettings, Depends(_settings)]
 Memory = Annotated[ORMAdapter, Depends(_memory)]  # existing one; if there is none, MemoryStoreError → 503
+# The repositories on that memory (one per request, shared by the dependencies of the same request): routes only
+# see the protocols.
+Files = Annotated[FileRepository, Depends(_files)]
+Categories = Annotated[CategoryRepository, Depends(_categories)]
+Runs = Annotated[RunRepository, Depends(_runs)]
 Base = Annotated[FileAdapter, Depends(_base)]
 Ingest = Annotated[FileAdapter, Depends(_ingest)]

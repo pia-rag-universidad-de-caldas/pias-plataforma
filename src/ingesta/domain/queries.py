@@ -28,6 +28,20 @@ class Queries:
         )
 
     @staticmethod
+    def is_safe(path: str) -> bool:
+        """Relative and without a ".." segment: only those are ever served, even if the memory had another."""
+        return not path.startswith("/") and ".." not in path.split("/")
+
+    @staticmethod
+    def chunkable_with_hash(records: list[FileRecord], chunkable_origins: set[str]) -> FileRecord | None:
+        """The chunkable file among those with one content (at most one is: hash duplicates aren't chunkable), if
+        its paths are safe."""
+        found = next((r for r in records if r.origen in chunkable_origins), None)
+        if found is None or not Queries.is_safe(found.origen) or not Queries.is_safe(found.destino):
+            return None
+        return found
+
+    @staticmethod
     def chunkable(records: list[FileRecord], chunkable_origins: set[str], filter_: FileFilter) -> list[FileRecord]:
         """Main function: the chunkable ones that meet the filter, ordered by `origen` (stable across pages)."""
         selected = (r for r in records if r.origen in chunkable_origins and Queries.matches(r, filter_))

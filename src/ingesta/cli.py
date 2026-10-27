@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import ClassVar
 
 from ingesta.adapters import (
     LocalFileAdapter,
@@ -29,14 +30,8 @@ from ingesta.adapters import (
 )
 from ingesta.api import ApiSettings, serve
 from ingesta.config import API_HOST, API_PORT, BASE, INGEST, MEMORY_NAME, sqlite_url
-from ingesta.domain import Discovery, Duplicates, Ingestion, Naming, Organization
-from ingesta.models import (
-    CategoryRepository,
-    FileAdapter,
-    FileFailure,
-    FileRepository,
-    Relocation,
-)
+from ingesta.domain import Discovery, Ingestion, IngestionObserver, Naming, Stage
+from ingesta.models import FileAdapter, FileFailure, IngestionOutcome, OrganizationPlan, Placement
 from ingesta.repository import DbCategoryRepository, DbFileRepository, DbRunRepository
 from ingesta.tables import TABLES
 
@@ -48,36 +43,65 @@ Command = Callable[[argparse.Namespace], int]
 type Subcommands = argparse._SubParsersAction[argparse.ArgumentParser]
 
 
-def _progress(done: int, total: int) -> None:
-    print(f"  ... {done}/{total}")
+def _listing[T](items: Sequence[T], line: Callable[[T], str], limit: int = MAX_LISTING, more: str = "") -> None:
+    """The first `limit` items, one per line, and how many were left out."""
+    for item in items[:limit]:
+        print(line(item))
+    if len(items) > limit:
+        print(f"  ... and {len(items) - limit} more{more}")
 
 
-def _error(label: str) -> Callable[[FileFailure], None]:
-    def show(failure: FileFailure) -> None:
+class _Console(IngestionObserver):
+    """Prints a run as it goes; each failure with the step it happened in."""
+
+    _HEADERS: ClassVar[dict[Stage, str]] = {
+        "hashes": "Computing the hash of {} already processed files...",
+        "metadata": "Reading the metadata of {} already processed files...",
+    }
+    _LABELS: ClassVar[dict[Stage, str]] = {"hashes": "no hash", "metadata": "no metadata", "copy": "error"}
+
+    def __init__(self) -> None:
+        self._label = self._LABELS["copy"]
+
+    def stage(self, name: Stage, total: int) -> None:
+        self._label = self._LABELS[name]
+        if name in self._HEADERS:
+            print(self._HEADERS[name].format(total))
+
+    def filled(self, done: int, total: int) -> None:
+        print(f"  ... {done}/{total}")
+
+    def copied(self, done: int, total: int) -> None:
+        print(f"  ... {done}/{total}")
+
+    def failed(self, failure: FileFailure) -> None:
         target = f"  ->  {failure.target}" if failure.target else ""
-        print(f"  [{label}] {failure.origin}{target}: {failure.error}", file=sys.stderr)
-
-    return show
+        print(f"  [{self._label}] {failure.origin}{target}: {failure.error}", file=sys.stderr)
 
 
-def _report_relocations(relocated: list[Relocation], simulate: bool) -> None:
-    if not relocated:
-        return
-    for r in relocated[:MAX_LISTING]:
-        print(f"  [relocate] {r.current_target}  ->  {r.new_folder}/")
-    if len(relocated) > MAX_LISTING:
-        print(f"  ... and {len(relocated) - MAX_LISTING} more")
-    verb = "Would be relocated" if simulate else "Relocated"
-    print(f"{verb} to their right folder (category or type change): {len(relocated)}")
+def _report_plan(plan: OrganizationPlan) -> None:
+    incomplete = plan.new_incomplete
+    print(
+        f"Found: {len(plan.found)} | already in memory: {plan.already_in_memory} "
+        f"| new: {len(plan.new)} (incomplete format: {len(incomplete)}) "
+        f"| hidden ignored: {len(plan.ignored)}"
+    )
+    _listing(incomplete, lambda f: f"  [incomplete] {f.path}  ->  {Naming.target_folder(f)}/{Naming.new_name(f)}")
+    _listing(plan.ignored, lambda path: f"  [hidden] {path}")
 
 
-def _classify_and_place(
-    repo: FileRepository, categories: CategoryRepository, ingest: FileAdapter, simulate: bool
-) -> None:
-    """Classifies the whole memory, moves each file to the folder of its main category and stores all its
-    categories in archivos_categorias (with --simulate it only reports)."""
-    placement = Ingestion.place(repo, categories, ingest, simulate)
-    _report_relocations(placement.relocated, simulate)
+def _report_simulation(plan: OrganizationPlan) -> None:
+    _listing(plan.new, lambda f: f"  {f.path}  ->  {Naming.target_folder(f)}/{Naming.new_name(f)}", MAX_SIMULATION)
+    if plan.new:
+        print("  (provisional folder: the final category depends on the hash, computed when copying)")
+
+
+def _report_placement(placement: Placement, simulate: bool) -> None:
+    """Where each file went (or would go, with --simulate) by its main category, and the categories stored."""
+    if placement.relocated:
+        _listing(placement.relocated, lambda r: f"  [relocate] {r.current_target}  ->  {r.new_folder}/")
+        verb = "Would be relocated" if simulate else "Relocated"
+        print(f"{verb} to their right folder (category or type change): {len(placement.relocated)}")
     changes = placement.changes
     if changes and (changes.added or changes.removed or changes.main_changed):
         print(
@@ -86,6 +110,18 @@ def _classify_and_place(
         )
     print("Folder (main category): " + " | ".join(f"{c}: {n}" for c, n in placement.main.items()))
     print("Files with each category (can have several): " + " | ".join(f"{c}: {n}" for c, n in placement.every.items()))
+
+
+def _report_duplicates(outcome: IngestionOutcome) -> None:
+    summary = outcome.duplicates
+    print(
+        f"Duplicates by content: {summary.grupos} groups, {summary.copias} leftover copies, "
+        f"{summary.recuperable / 1048576:,.1f} MB recoverable"
+    )
+    if outcome.new_duplicates:
+        print(f"  {len(outcome.new_duplicates)} files of this run repeat existing content:")
+        more = " (see GET /ingesta/stats/duplicates)"
+        _listing(outcome.new_duplicates, lambda d: f"    {d.new}  ==  {d.previous}", more=more)
 
 
 def _memory_url(args: argparse.Namespace, ingest: FileAdapter) -> str:
@@ -107,64 +143,24 @@ def organize(args: argparse.Namespace) -> int:
     data = create_adapter(memory, TABLES)
     try:
         repo = DbFileRepository(data)
-        runs = DbRunRepository(data)
         categories = DbCategoryRepository(data)
-
         plan = Discovery.plan(base, repo.processed_origins())
-        incomplete = plan.new_incomplete
-        print(
-            f"Found: {len(plan.found)} | already in memory: {plan.already_in_memory} "
-            f"| new: {len(plan.new)} (incomplete format: {len(incomplete)}) "
-            f"| hidden ignored: {len(plan.ignored)}"
-        )
-        for f in incomplete[:MAX_LISTING]:
-            print(f"  [incomplete] {f.path}  ->  {Naming.target_folder(f)}/{Naming.new_name(f)}")
-        if len(incomplete) > MAX_LISTING:
-            print(f"  ... and {len(incomplete) - MAX_LISTING} more")
-        for path in plan.ignored[:MAX_LISTING]:
-            print(f"  [hidden] {path}")
-        if len(plan.ignored) > MAX_LISTING:
-            print(f"  ... and {len(plan.ignored) - MAX_LISTING} more")
-
+        _report_plan(plan)
         if args.simulate:
-            for f in plan.new[:MAX_SIMULATION]:
-                print(f"  {f.path}  ->  {Naming.target_folder(f)}/{Naming.new_name(f)}")
-            if len(plan.new) > MAX_SIMULATION:
-                print(f"  ... and {len(plan.new) - MAX_SIMULATION} more")
-            if plan.new:
-                print("  (provisional folder: the final category depends on the hash, computed when copying)")
-            _classify_and_place(repo, categories, ingest, simulate=True)
+            _report_simulation(plan)
+            _report_placement(Ingestion.place(repo, categories, ingest, simulate=True), simulate=True)
             return 0
-
-        if pending := repo.without_hash():
-            print(f"Computing the hash of {len(pending)} already processed files...")
-            Organization.fill_hashes(repo, ingest, pending, _progress, _error("no hash"))
-        if pending := repo.without_metadata():
-            print(f"Reading the metadata of {len(pending)} already processed files...")
-            Organization.fill_metadata(repo, base, ingest, pending, _progress, _error("no metadata"))
-
-        result = Organization.execute(plan, base, ingest, repo, runs, args.move, _progress, _error("error"))
-        # The category depends on the hash and on the rest of the corpus: the new files (and the ones they
-        # displace) are relocated now.
-        _classify_and_place(repo, categories, ingest, simulate=False)
-
-        groups = Duplicates.group(repo.with_repeated_hash())
-        summary = Duplicates.summarize(groups)
-        print(
-            f"Duplicates by content: {summary.grupos} groups, {summary.copias} leftover copies, "
-            f"{summary.recuperable / 1048576:,.1f} MB recoverable"
+        # The category depends on the hash and on the rest of the corpus: run places the new files (and the ones
+        # they displace) after copying them.
+        outcome = Ingestion.run(
+            plan, base, ingest, repo, DbRunRepository(data), categories, _Console(), move=base if args.move else None
         )
-        if result.processed:
-            new_duplicates = Duplicates.new_in_run(groups, result.origins)
-            if new_duplicates:
-                print(f"  {len(new_duplicates)} files of this run repeat existing content:")
-                for d in new_duplicates[:MAX_LISTING]:
-                    print(f"    {d.new}  ==  {d.previous}")
-                if len(new_duplicates) > MAX_LISTING:
-                    print(f"    ... and {len(new_duplicates) - MAX_LISTING} more (see GET /ingesta/stats/duplicates)")
+        _report_placement(outcome.placement, simulate=False)
+        _report_duplicates(outcome)
     finally:
         data.close()
 
+    result = outcome.run
     verb = "moved" if args.move else "copied"
     done = f"{result.processed - len(result.not_deleted)} files {verb}"
     if result.not_deleted:

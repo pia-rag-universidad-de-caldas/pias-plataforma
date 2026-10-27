@@ -1,10 +1,10 @@
-"""The checks of POST /chunking/experiments on its `files` and `plan` (feature 028), without a server."""
+"""The checks of POST /chunking/experiments on its `files` and `plan` (features 025 and 028), without a server."""
 
 import pytest
 from fastapi import HTTPException
 
+from chunking.api.experiment_requests import experiment_request
 from chunking.api.experiment_schemas import ConversionBody, FilesBody, JsonFilesBody, NewExperiment, PagesBody, PlanBody
-from chunking.api.routes.experiments import _request
 from chunking.models import PageRange
 
 
@@ -14,7 +14,7 @@ def request(files: FilesBody, plan: PlanBody | None = None, conversion: Conversi
 
 def test_pages_with_types_and_no_plan_is_a_conversion_only_request() -> None:
     files = FilesBody(pages=PagesBody(first=2, last=4), per_page=50, types=["pdf", "docx"])
-    built = _request(request(files), "2")
+    built = experiment_request(request(files), "2")
     assert built.plan is None
     assert built.files.pages == PageRange(2, 4) and built.files.per_page == 50
     assert built.files.filter is not None and built.files.filter.types == ["pdf", "docx"]
@@ -22,7 +22,7 @@ def test_pages_with_types_and_no_plan_is_a_conversion_only_request() -> None:
 
 def test_from_json_with_a_plan() -> None:
     files = FilesBody(from_json=JsonFilesBody(pages=PagesBody(first=1, last=1), per_page=10))
-    built = _request(request(files, PlanBody()), "2")
+    built = experiment_request(request(files, PlanBody()), "2")
     assert built.files.from_json is not None and built.plan is not None
 
 
@@ -42,5 +42,5 @@ def test_from_json_with_a_plan() -> None:
 )
 def test_malformed_files_are_422(files: FilesBody, plan: PlanBody | None, conversion: ConversionBody | None) -> None:
     with pytest.raises(HTTPException) as error:
-        _request(request(files, plan, conversion), "2")
+        experiment_request(request(files, plan, conversion), "2")
     assert error.value.status_code == 422

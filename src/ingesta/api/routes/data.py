@@ -8,12 +8,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from ingesta.api.dependencies import Ingest, Memory
+from ingesta.api.dependencies import Categories, Files, Ingest, Runs
 from ingesta.api.schemas import ChunkableFiles, Error
 from ingesta.config import MAX_PER_PAGE, PER_PAGE
 from ingesta.domain import Queries
-from ingesta.models import Category, FileFilter, FileRecord, ORMAdapter
-from ingesta.repository import DbCategoryRepository, DbFileRepository, DbRunRepository
+from ingesta.models import Category, CategoryRepository, FileFilter, FileRecord, FileRepository
 
 router = APIRouter(tags=["data"])
 
@@ -34,7 +33,9 @@ _ORIGIN_OR_HASH: _Responses = {422: {"model": Error, "description": "not exactly
 
 @router.get("/data", responses=_MEMORY_DOWN)
 def chunkable_files(
-    memory: Memory,
+    files: Files,
+    categories: Categories,
+    runs: Runs,
     type: Annotated[list[str] | None, Query(description="extension; repeatable: ?type=pdf&type=docx")] = None,
     year: int | None = None,
     month: Annotated[int | None, Query(ge=1, le=12, description="month number")] = None,
@@ -46,10 +47,10 @@ def chunkable_files(
     """All filters must match at once. `reorganizado` is when the last `organizar` run finished: if it changes
     between two requests, the pages may have shifted."""
     filter_ = FileFilter(Queries.normalized_types(type or []), year, month, week, code)
-    chunkable = DbCategoryRepository(memory).origins_with(Category.CHUNKABLE.value)
-    selected = Queries.chunkable(DbFileRepository(memory).all(), chunkable, filter_)
+    chunkable = categories.origins_with(Category.CHUNKABLE.value)
+    selected = Queries.chunkable(files.all(), chunkable, filter_)
     result = Queries.paginate(selected, page, per_page)
-    last_run = DbRunRepository(memory).last_finished()
+    last_run = runs.last_finished()
     return ChunkableFiles(
         reorganizado=last_run.fin if last_run else None,
         pagina=result.page,
@@ -60,24 +61,20 @@ def chunkable_files(
     )
 
 
-def _is_unsafe(path: str) -> bool:
-    """Absolute or with a ".." segment: never served, even if the memory had it."""
-    return path.startswith("/") or ".." in path.split("/")
-
-
-def _chunkable_record(memory: ORMAdapter, origin: str) -> FileRecord:
+def _chunkable_record(files: FileRepository, categories: CategoryRepository, origin: str) -> FileRecord:
     """The record of a CHUNKABLE file (as GET /data decides it), or 404."""
-    record = None if _is_unsafe(origin) else DbFileRepository(memory).find(origin)
-    if record is None or _is_unsafe(record.destino):
+    record = files.find(origin) if Queries.is_safe(origin) else None
+    if record is None or not Queries.is_safe(record.destino):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"the origin {origin!r} isn't registered")
-    if origin not in DbCategoryRepository(memory).origins_with(Category.CHUNKABLE.value):
+    if origin not in categories.origins_with(Category.CHUNKABLE.value):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"the origin {origin!r} isn't ready for chunking")
     return record
 
 
 @router.get("/data/file", responses=_NOT_CHUNKABLE | _ORIGIN_OR_HASH | _MEMORY_DOWN)
 def chunkable_file(
-    memory: Memory,
+    files: Files,
+    categories: Categories,
     origin: Annotated[str | None, Query(description="relative path inside base/, as `origen` in GET /data")] = None,
     sha256: Annotated[str | None, Query(description="content hash, as `sha256` in GET /data")] = None,
 ) -> FileRecord:
@@ -86,12 +83,12 @@ def chunkable_file(
     if (origin is None) == (sha256 is None):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "give exactly one of origin and sha256")
     if origin is not None:
-        return _chunkable_record(memory, origin)
-    chunkable = DbCategoryRepository(memory).origins_with(Category.CHUNKABLE.value)
-    records = [r for r in DbFileRepository(memory).with_hash(sha256 or "") if r.origen in chunkable]
-    if not records or _is_unsafe(records[0].origen) or _is_unsafe(records[0].destino):
+        return _chunkable_record(files, categories, origin)
+    chunkable = categories.origins_with(Category.CHUNKABLE.value)
+    found = Queries.chunkable_with_hash(files.with_hash(sha256 or ""), chunkable)
+    if found is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"no file ready for chunking has the sha256 {sha256!r}")
-    return records[0]
+    return found
 
 
 @router.get(
@@ -99,10 +96,10 @@ def chunkable_file(
     response_class=StreamingResponse,
     responses=_CONTENT | _NOT_CHUNKABLE | _MEMORY_DOWN,
 )
-def chunkable_content(memory: Memory, ingest: Ingest, origin: _Origin) -> StreamingResponse:
+def chunkable_content(files: Files, categories: Categories, ingest: Ingest, origin: _Origin) -> StreamingResponse:
     """The content of one chunkable file (its copy in ingesta/, `destino`), streamed. Content-Type is the MIME type
     stored in the memory (application/octet-stream if unknown)."""
-    record = _chunkable_record(memory, origin)
+    record = _chunkable_record(files, categories, origin)
     size = ingest.info(record.destino).bytes  # FileError → 500 if the copy is gone
     chunks = ingest.read_chunks(record.destino)
     fallback = record.nombre.encode("ascii", "replace").decode().replace('"', "_")

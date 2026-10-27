@@ -52,6 +52,30 @@ RELATIONSHIPS: tuple[RelationshipDefinition, ...] = (
     RelationshipDefinition(_T.VIENE_DE, _L.JSON, _L.EXP_DOCUMENTO),
 )
 
+# Relationships that mean "is part of": a batch's `replace_from` deletes what hangs from a node through them. The
+# others are associations with nodes that other documents share (a NORMA, an ANTIPATRON, the FRAGMENTOS a CONSULTA
+# was answered with...) and are never followed, so those nodes stay; nothing is followed upwards either.
+# Experiments (025): from an EXPERIMENTO, EXP_GENERA → its sections → EXP_TIENE_CHUNK → their chunks, and
+# EXP_TIENE_PUNTUACION → its scores; never EXP_USA (its EXP_DOCUMENTO are shared by other experiments) nor
+# EXP_TIENE_SECCION (from a document it would reach the sections of every experiment).
+# Pipeline (028): from a PIPE_CORRIDA, its iterations and events; never PIPE_USA (the experiments stay) nor PIPE_DE,
+# and VIENE_DE (official JSON → its conversion) is never followed either.
+# A new relationship decides here, next to its definition, whether it is composition: the repository doesn't change.
+COMPOSITION: frozenset[RelationshipType] = frozenset(
+    {
+        _T.ES,
+        _T.TIENE_SECCION,
+        _T.TIENE_FRAGMENTO,
+        _T.TIENE,
+        _T.GENERA,
+        _T.EXP_GENERA,
+        _T.EXP_TIENE_CHUNK,
+        _T.EXP_TIENE_PUNTUACION,
+        _T.PIPE_TIENE_ITERACION,
+        _T.PIPE_TIENE_EVENTO,
+    }
+)
+
 
 def definition(type: RelationshipType, source: Label, target: Label) -> RelationshipDefinition | None:
     """The schema relationship with that type and those ends, or None if the schema doesn't allow it."""

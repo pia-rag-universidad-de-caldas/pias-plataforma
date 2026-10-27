@@ -1,10 +1,11 @@
 """Ingestion process (feature 030): check a source, copy what is new and classify the whole corpus.
 
-The same steps as `organize`, without printing, so the API can run them: the source is a read-only FileAdapter and
-it is never moved nor deleted.
+The steps of `organize`, without printing: the CLI and the API run them and each one reports through its own
+IngestionObserver. The source is a FileReader: only `organize --move` gives its writer, to delete the originals.
 """
 
 from collections import Counter
+from typing import Literal
 
 from ingesta.config import LEVELS, PROGRESS_EVERY
 from ingesta.models import (
@@ -12,7 +13,10 @@ from ingesta.models import (
     CategoryRepository,
     FileAdapter,
     FileError,
+    FileFailure,
+    FileReader,
     FileRepository,
+    FileWriter,
     IngestionOutcome,
     IssueCode,
     IssueLevel,
@@ -28,14 +32,30 @@ from .classification import Classifier
 from .discovery import Discovery
 from .duplicates import Duplicates
 from .naming import Naming
-from .organization import OnFailure, OnProgress, Organization
+from .organization import Organization
 
 MAX_EXAMPLES = 10  # incomplete paths listed in a check
 _STRUCTURE = "/".join(["<year>", "<month>", "<week>", "<code>", "<file>"][:LEVELS])
 
 
-def _ignore(*_args: object) -> None:
-    """Default callback: reports nothing."""
+type Stage = Literal["hashes", "metadata", "copy"]
+
+
+class IngestionObserver:
+    """What a run tells whoever drives it (the console, the API's registry). Each method does nothing by default:
+    override the ones you need."""
+
+    def stage(self, name: Stage, total: int) -> None:
+        """A step starts: filling the hash or the metadata of `total` old records, or copying `total` new files."""
+
+    def filled(self, done: int, total: int) -> None:
+        """Old records filled so far (hash or metadata, every HASH_BATCH)."""
+
+    def copied(self, done: int, total: int) -> None:
+        """New files processed so far (every `progress_every`)."""
+
+    def failed(self, failure: FileFailure) -> None:
+        """A file failed; the run goes on."""
 
 
 def _issue(code: IssueCode, level: IssueLevel, message: str) -> SourceIssue:
@@ -47,7 +67,7 @@ class Ingestion:
 
     @staticmethod
     def check(
-        source: FileAdapter, kind: SourceKind, processed: set[str], overlaps_ingest: bool = False
+        source: FileReader, kind: SourceKind, processed: set[str], overlaps_ingest: bool = False
     ) -> tuple[SourceCheck, OrganizationPlan | None]:
         """What the source has and why it can't be ingested, if so; the plan only when it could be read."""
         location = source.absolute()
@@ -126,24 +146,31 @@ class Ingestion:
     @staticmethod
     def run(
         plan: OrganizationPlan,
-        source: FileAdapter,
+        source: FileReader,
         ingest: FileAdapter,
         repo: FileRepository,
         runs: RunRepository,
         categories: CategoryRepository,
-        on_progress: OnProgress = _ignore,
-        on_failure: OnFailure = _ignore,
+        observer: IngestionObserver | None = None,
         progress_every: int = PROGRESS_EVERY,
+        move: FileWriter | None = None,
     ) -> IngestionOutcome:
-        """Fills what old records miss, copies the new files (never moves), places the corpus and sums up the
-        duplicates. An error with a file doesn't stop it (see Organization.execute)."""
+        """Fills what old records miss, copies the new files, places the corpus and sums up the duplicates. `move` is
+        the writer of the source when moving (the CLI's --move); the API never passes it: its source stays intact.
+        An error with a file doesn't stop it (see Organization.execute)."""
+        report = observer or IngestionObserver()
         hashes = repo.without_hash()
         if hashes:
-            Organization.fill_hashes(repo, ingest, hashes, on_failure=on_failure)
+            report.stage("hashes", len(hashes))
+            Organization.fill_hashes(repo, ingest, hashes, report.filled, report.failed)
         metadata = repo.without_metadata()
         if metadata:
-            Organization.fill_metadata(repo, source, ingest, metadata, on_failure=on_failure)
-        result = Organization.execute(plan, source, ingest, repo, runs, False, on_progress, on_failure, progress_every)
+            report.stage("metadata", len(metadata))
+            Organization.fill_metadata(repo, source, ingest, metadata, report.filled, report.failed)
+        report.stage("copy", len(plan.new))
+        result = Organization.execute(
+            plan, source, ingest, repo, runs, move, report.copied, report.failed, progress_every
+        )
         placement = Ingestion.place(repo, categories, ingest, simulate=False)
         groups = Duplicates.group(repo.with_repeated_hash())
         new_duplicates = Duplicates.new_in_run(groups, result.origins) if result.processed else []

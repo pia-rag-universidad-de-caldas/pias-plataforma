@@ -96,7 +96,10 @@ class Statistics:
     def year_comparison(records: list[FileRecord]) -> YearsComparison:
         """The report sections «Por año» and «Comparación entre años», with the same numbers as `build`."""
         _, types, group_type = Statistics._types(records)
-        by_year = Statistics._by_year(records, group_type)
+        return Statistics._years(types, Statistics._by_year(records, group_type))
+
+    @staticmethod
+    def _years(types: list[str], by_year: _ByYear) -> YearsComparison:
         years = by_year.years
         return YearsComparison(
             anios=years,
@@ -200,9 +203,8 @@ class Statistics:
         )
 
     @staticmethod
-    def _without_empty_and_deduplicated(
-        records: list[FileRecord], groups: list[DuplicateGroup]
-    ) -> tuple[list[FileRecord], list[FileRecord]]:
+    def _deduplicated(records: list[FileRecord], groups: list[DuplicateGroup]) -> list[FileRecord]:
+        """The non-empty files, with one representative per content (the codes are counted on these)."""
         without_empty = [r for r in records if r.bytes >= ALMOST_EMPTY_THRESHOLD]
 
         deduplicated: list[FileRecord] = []
@@ -219,7 +221,7 @@ class Statistics:
         for r in without_empty:
             if r.sha256 is None or r.sha256 not in seen_sha:
                 deduplicated.append(r)
-        return without_empty, deduplicated
+        return deduplicated
 
     @staticmethod
     def _cleanup(records: list[FileRecord]) -> CleanupReport:
@@ -251,12 +253,8 @@ class Statistics:
         for r in records:
             sizes_by_type[group_type(r.tipo)].append(r.bytes)
 
-        by_year = Statistics._by_year(records, group_type)
-        by_year_type, size_year_type, by_year_month = by_year.by_type, by_year.size_by_type, by_year.by_month
-        years = by_year.years
-
-        _, deduplicated = Statistics._without_empty_and_deduplicated(records, groups)
-        codes = Counter(r.codigo for r in deduplicated if r.codigo)
+        comparison = Statistics._years(types, Statistics._by_year(records, group_type))
+        codes = Counter(r.codigo for r in Statistics._deduplicated(records, groups) if r.codigo)
         duplicated_codes = [(code, amount) for code, amount in codes.items() if amount > 1]
         incomplete = [r for r in records if not r.completo]
         return ReportData(
@@ -268,12 +266,12 @@ class Statistics:
             otros={t: count_by_type[t] for t in other_types},
             resumen_por_tipo={t: numeric_summary(sizes_by_type[t]) for t in types},
             codigos_principales=sorted(duplicated_codes, key=lambda item: (-item[1], item[0])),
-            anios=years,
-            archivos_anio_tipo={y: [by_year_type[y][t] for t in types] for y in years},
-            bytes_tipo_anio={t: [size_year_type[y][t] for y in years] for t in types},
-            archivos_anio_mes={y: [by_year_month[y][m] for m in range(1, 13)] for y in years},
-            filas_anios=Statistics._year_rows(years, by_year_type, size_year_type, by_year_month),
-            duplicados=Statistics._duplicates(groups, records, types, years, group_type),
+            anios=comparison.anios,
+            archivos_anio_tipo=comparison.archivos_anio_tipo,
+            bytes_tipo_anio=comparison.bytes_tipo_anio,
+            archivos_anio_mes=comparison.archivos_anio_mes,
+            filas_anios=comparison.filas_anios,
+            duplicados=Statistics._duplicates(groups, records, types, comparison.anios, group_type),
             vacios=Statistics._empties(records, types, group_type),
             limpieza=Statistics._cleanup(records),
             incompletos=len(incomplete),

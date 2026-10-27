@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from ingesta.api.dependencies import Memory
+from ingesta.api.dependencies import Files
 from ingesta.api.schemas import (
     BasicSummary,
     DuplicatedCodes,
@@ -28,7 +28,6 @@ from ingesta.models import (
     YearComparison,
     YearsComparison,
 )
-from ingesta.repository import DbFileRepository
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -36,8 +35,8 @@ _NO_MEMORY = "the memory could not be opened"
 _NO_YEAR = "no files with complete structure in that year"
 
 
-def _statistics(memory: Memory) -> ReportData:
-    records = DbFileRepository(memory).all()
+def _statistics(files: Files) -> ReportData:
+    records = files.all()
     return Statistics.build(records, Duplicates.group(records), Repetitions.group(records))
 
 
@@ -46,22 +45,22 @@ def _not_found(detail: str) -> HTTPException:
 
 
 @router.get("", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def everything(memory: Memory) -> ReportData:
+def everything(files: Files) -> ReportData:
     """Every section of the statistics at once."""
-    return _statistics(memory)
+    return _statistics(files)
 
 
 @router.get("/summary", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def summary(memory: Memory) -> BasicSummary:
+def summary(files: Files) -> BasicSummary:
     """Basic statistics: totals of files, bytes, codes and types."""
-    s = _statistics(memory)
+    s = _statistics(files)
     return BasicSummary(s.archivos, s.bytes, s.total_codigos, s.total_tipos, s.incompletos, s.bytes_incompletos)
 
 
 @router.get("/types", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def types(memory: Memory) -> TypesReport:
+def types(files: Files) -> TypesReport:
     """The report's file types and the size distribution of each one."""
-    s = _statistics(memory)
+    s = _statistics(files)
     return TypesReport(s.total_tipos, s.tipos, s.otros, s.resumen_por_tipo)
 
 
@@ -72,10 +71,10 @@ def types(memory: Memory) -> TypesReport:
         503: {"model": Error, "description": _NO_MEMORY},
     },
 )
-def file_type(memory: Memory, file_type: str) -> TypeReport:
+def file_type(files: Files, file_type: str) -> TypeReport:
     """Everything the report says about one type: sizes, files and bytes per year, copies and empty files. The
     rare types are inside `otros`."""
-    s = _statistics(memory)
+    s = _statistics(files)
     name = Naming.file_type(f"x.{file_type.lstrip('.')}")
     if name not in s.tipos:
         in_others = " (it is grouped in otros: /stats/types/otros)" if name in s.otros else ""
@@ -95,57 +94,57 @@ def file_type(memory: Memory, file_type: str) -> TypeReport:
 
 
 @router.get("/years", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def years(memory: Memory) -> YearsComparison:
+def years(files: Files) -> YearsComparison:
     """By year and comparison between years (only files with complete structure)."""
-    return Statistics.year_comparison(DbFileRepository(memory).all())
+    return Statistics.year_comparison(files.all())
 
 
 @router.get(
     "/years/{year}",
     responses={404: {"model": Error, "description": _NO_YEAR}, 503: {"model": Error, "description": _NO_MEMORY}},
 )
-def year(memory: Memory, year: int) -> YearComparison:
+def year(files: Files, year: int) -> YearComparison:
     """One year: files and bytes per type, files per month and growth against the previous year."""
-    comparison = Statistics.year(DbFileRepository(memory).all(), year)
+    comparison = Statistics.year(files.all(), year)
     if comparison is None:
         raise _not_found(f"{_NO_YEAR}: {year}")
     return comparison
 
 
 @router.get("/duplicates", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def duplicates(memory: Memory, limit: Annotated[int | None, Query(ge=1)] = None) -> DuplicatesReport:
+def duplicates(files: Files, limit: Annotated[int | None, Query(ge=1)] = None) -> DuplicatesReport:
     """Duplicates by content (same sha256): summary, copies per type and year and the groups that take the most
     space; `limit` returns only the first groups (each one lists all its paths)."""
-    d = _statistics(memory).duplicados
+    d = _statistics(files).duplicados
     return replace(d, principales=d.principales[:limit])
 
 
 @router.get("/empty", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def empty(memory: Memory) -> EmptyFilesReport:
+def empty(files: Files) -> EmptyFilesReport:
     """Empty (0 B) or almost empty files, per type, and the smallest ones."""
-    return _statistics(memory).vacios
+    return _statistics(files).vacios
 
 
 @router.get("/codes", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def codes(memory: Memory, limit: Annotated[int | None, Query(ge=1)] = None) -> DuplicatedCodes:
+def codes(files: Files, limit: Annotated[int | None, Query(ge=1)] = None) -> DuplicatedCodes:
     """Duplicated codes, from most to fewest files; `limit` returns only the first ones."""
-    main_codes = _statistics(memory).codigos_principales
+    main_codes = _statistics(files).codigos_principales
     return DuplicatedCodes(total=len(main_codes), codigos=main_codes[:limit])
 
 
 @router.get("/repeated", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def repeated(memory: Memory) -> RepeatedReport:
+def repeated(files: Files) -> RepeatedReport:
     """Repeated PIAA per year: a code with two or more files in the same year."""
-    return _statistics(memory).repetidos
+    return _statistics(files).repetidos
 
 
 @router.get(
     "/repeated/{year}",
     responses={404: {"model": Error, "description": _NO_YEAR}, 503: {"model": Error, "description": _NO_MEMORY}},
 )
-def repeated_year(memory: Memory, year: int) -> RepeatedYear:
+def repeated_year(files: Files, year: int) -> RepeatedYear:
     """Repeated PIAA of one year, with that year's codes that have the most files."""
-    r = _statistics(memory).repetidos
+    r = _statistics(files).repetidos
     row = next((f for f in r.filas if f.anio == year), None)
     if row is None:
         raise _not_found(f"{_NO_YEAR}: {year}")
@@ -154,6 +153,6 @@ def repeated_year(memory: Memory, year: int) -> RepeatedYear:
 
 
 @router.get("/cleanup", responses={503: {"model": Error, "description": _NO_MEMORY}})
-def cleanup(memory: Memory) -> CleanupReport:
+def cleanup(files: Files) -> CleanupReport:
     """Classification funnel: what leaves at each step and what remains ready for chunking."""
-    return _statistics(memory).limpieza
+    return _statistics(files).limpieza

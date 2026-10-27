@@ -274,11 +274,10 @@ class FileInfo:
     permissions: str  # octal, "644"
 
 
-class FileAdapter(ABC):
-    """Files under a root (feature 013): one adapter per folder (base/, ingesta/, the report's...). Paths are
-    relative to the root, as text with "/"; "" is the root. Every failure is raised as FileError."""
-
-    # --- queries ---
+class FileReader(ABC):
+    """Reading files under a root (feature 013): what an ingestion source needs (feature 030: a source is read-only,
+    an external SQL database will implement only this). Paths are relative to the root, as text with "/"; "" is the
+    root. Every failure is raised as FileError."""
 
     @abstractmethod
     def absolute(self, path: str = "") -> str:
@@ -313,7 +312,9 @@ class FileAdapter(ABC):
         Opens the file right away (FileError if it doesn't exist, can't be read or falls outside the root) and closes
         it when the iteration ends or the iterator is closed."""
 
-    # --- changes ---
+
+class FileWriter(ABC):
+    """Changing files under a root (ingesta/, or base/ only when moving). Paths and errors as in FileReader."""
 
     @abstractmethod
     def write_text(self, path: str, text: str, encoding: str = "utf-8") -> None:
@@ -332,10 +333,10 @@ class FileAdapter(ABC):
         """folder/name, or folder/name__N.ext if it already exists, so nothing is overwritten."""
 
     @abstractmethod
-    def copy_from(self, source: "FileAdapter", path: str, target: str) -> str:
-        """Copies `path` from `source` (an adapter of the same kind) to `target` keeping dates and permissions, and
-        returns the sha256 of what was written. Atomic: if interrupted, no half-written file is left with the final
-        name."""
+    def copy_from(self, source: FileReader, path: str, target: str) -> str:
+        """Copies `path` from `source` to `target` and returns the sha256 of what was written. Atomic: if interrupted,
+        no half-written file is left with the final name. From an adapter of the same kind it also keeps the dates
+        and permissions."""
 
     @abstractmethod
     def move(self, path: str, target: str) -> None:
@@ -347,6 +348,10 @@ class FileAdapter(ABC):
     @abstractmethod
     def remove_empty_dirs(self, folder: str) -> None:
         """Deletes `folder` and the ones above it while they are empty, never deleting the root."""
+
+
+class FileAdapter(FileReader, FileWriter):
+    """Files under a root that can be read and changed: one adapter per folder (base/, ingesta/...)."""
 
 
 # --- repositories: the domain only knows these interfaces ---

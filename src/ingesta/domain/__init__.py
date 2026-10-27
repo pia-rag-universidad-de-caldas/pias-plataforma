@@ -3,7 +3,7 @@
 from .classification import ClassificationMap, Classifier
 from .discovery import Discovery
 from .duplicates import Duplicates
-from .ingestion import Ingestion
+from .ingestion import Ingestion, IngestionObserver, Stage
 from .naming import Naming
 from .organization import Organization
 from .queries import Queries
@@ -16,9 +16,11 @@ __all__ = [
     "Discovery",
     "Duplicates",
     "Ingestion",
+    "IngestionObserver",
     "Naming",
     "Organization",
     "Queries",
     "Repetitions",
+    "Stage",
     "Statistics",
 ]

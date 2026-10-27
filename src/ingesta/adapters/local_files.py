@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from ingesta.config import PARTIAL_SUFFIX
-from ingesta.models import FileAdapter, FileError, FileInfo
+from ingesta.models import FileAdapter, FileError, FileInfo, FileReader
 
 # Project root: src/ingesta/adapters/local_files.py -> 3 levels up. Valid because uv installs the project in
 # editable mode; otherwise, use --base/--ingest/--memory/--output.
@@ -166,14 +166,20 @@ class LocalFileAdapter(FileAdapter):
                 n += 1
         return target.relative_to(self._root).as_posix()
 
-    def copy_from(self, source: FileAdapter, path: str, target: str) -> str:
-        if not isinstance(source, LocalFileAdapter):
-            raise TypeError("LocalFileAdapter only copies from another LocalFileAdapter")
+    def copy_from(self, source: FileReader, path: str, target: str) -> str:
         final = self._path(target)
         partial = final.with_name(final.name + PARTIAL_SUFFIX)
         try:
-            shutil.copy2(source._path(path), partial)
-            sha = self._hash(partial)
+            if isinstance(source, LocalFileAdapter):
+                shutil.copy2(source._path(path), partial)  # keeps dates and permissions
+                sha = self._hash(partial)
+            else:  # any other source (an external database, feature 030): its content, block by block
+                digest = hashlib.sha256()
+                with partial.open("wb") as out:
+                    for block in source.read_chunks(path):
+                        digest.update(block)
+                        out.write(block)
+                sha = digest.hexdigest()
             partial.replace(final)
             return sha
         except BaseException as e:

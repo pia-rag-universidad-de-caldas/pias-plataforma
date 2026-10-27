@@ -1,24 +1,22 @@
 """PiaaRepository: CRUD of the PIAA graph's nodes and relationships on top of GraphAdapter (Cypher, no driver).
 
 Neo4j doesn't accept labels or relationship types as parameters, so they are concatenated, but only values of the
-closed enums Label and RelationshipType (never user text). Every other value always goes in parameters.
+closed enums Label and RelationshipType (never user text, see cypher.name). Every other value always goes in
+parameters. The batches are GraphBatchWriter's.
 """
 
 from collections.abc import Mapping, Sequence
 from typing import LiteralString, cast
 
 from data.models import (
-    BatchError,
     BatchNode,
     BatchResult,
     GraphAdapter,
     GraphError,
     GraphRow,
-    GraphTransaction,
     GraphValue,
     Label,
     Node,
-    NodeMode,
     NodeRef,
     Properties,
     PropertyValue,
@@ -26,6 +24,10 @@ from data.models import (
     RelationshipDefinition,
     RelationshipType,
 )
+
+from .batch_writer import GraphBatchWriter
+from .cypher import integer as _integer
+from .cypher import name as _name
 
 _NODE: LiteralString = "n.id AS id, properties(n) AS properties"
 # For each end, its first known label (in case someone added others outside the API).
@@ -38,48 +40,11 @@ _RELATIONSHIP: LiteralString = (
 _RELATIONSHIP_ORDER: LiteralString = " ORDER BY type, source_label, source_id, target_label, target_id"
 _LABELS: list[GraphValue] = [label.value for label in Label]
 _TYPES: list[GraphValue] = [type.value for type in RelationshipType]
-# Relationships that mean "is part of": a batch's `replace_from` deletes what hangs from a node through them. The
-# others are associations with nodes that other documents share (a NORMA, an ANTIPATRON, the FRAGMENTOS a CONSULTA
-# was answered with...) and are never followed, so those nodes stay; nothing is followed upwards either.
-# Experiments (025): from an EXPERIMENTO, EXP_GENERA → its sections → EXP_TIENE_CHUNK → their chunks, and
-# EXP_TIENE_PUNTUACION → its scores; never EXP_USA
-# (its EXP_DOCUMENTO are shared by other experiments) nor EXP_TIENE_SECCION (from a document it would reach the
-# sections of every experiment).
-# Pipeline (028): from a PIPE_CORRIDA, its iterations and events; never PIPE_USA (the experiments stay) nor PIPE_DE,
-# and VIENE_DE (official JSON → its conversion) is never followed either.
-_COMPOSITION: list[GraphValue] = [
-    t.value
-    for t in (
-        RelationshipType.ES,
-        RelationshipType.TIENE_SECCION,
-        RelationshipType.TIENE_FRAGMENTO,
-        RelationshipType.TIENE,
-        RelationshipType.GENERA,
-        RelationshipType.EXP_GENERA,
-        RelationshipType.EXP_TIENE_CHUNK,
-        RelationshipType.EXP_TIENE_PUNTUACION,
-        RelationshipType.PIPE_TIENE_ITERACION,
-        RelationshipType.PIPE_TIENE_EVENTO,
-    )
-]
-_MAX_LISTED = 5  # missing relationship ends named in a BatchError
-
-
-def _name(value: Label | RelationshipType) -> LiteralString:
-    """Label or type ready for Cypher (between backticks). Only values of the closed enums."""
-    text: LiteralString = value.value
-    return "`" + text + "`"
 
 
 def _assignment(variable: LiteralString, replace: bool) -> LiteralString:
     """`n = $p` removes the properties not sent; `n += $p` only changes the ones sent (null removes one)."""
     return variable + (" = $properties" if replace else " += $properties")
-
-
-def _integer(value: GraphValue) -> int:
-    if isinstance(value, int):
-        return value
-    raise GraphError(f"expected an integer and got {value!r}")
 
 
 def _properties(value: GraphValue) -> Properties:
@@ -243,90 +208,5 @@ class PiaaRepository:
     def write_batch(
         self, nodes: Sequence[BatchNode], relationships: Sequence[Relationship], replace_from: NodeRef | None
     ) -> BatchResult:
-        """Everything in one transaction, in this order: deletes the descendants of `replace_from` (not the node
-        itself), merges the nodes by id (`replace`: properties = the ones sent; `ensure`: only if missing) and merges
-        the relationships. One UNWIND statement per label and mode, and per relationship definition.
-
-        The caller validates labels, types and the schema. Raises BatchError (and nothing is written) if a
-        relationship end is neither in the batch nor in the graph (or `replace_from` just deleted it)."""
-        with self._graph.transaction() as tx:
-            deleted = self._delete_descendants(tx, replace_from) if replace_from else 0
-            created = replaced = kept = merged = 0
-            node_groups: dict[tuple[Label, NodeMode], list[BatchNode]] = {}
-            for node in nodes:
-                node_groups.setdefault((node.label, node.mode), []).append(node)
-            for (label, mode), group in node_groups.items():
-                new, total = self._merge_nodes(tx, label, mode, group)
-                created += new
-                if mode == NodeMode.REPLACE:
-                    replaced += total - new
-                elif mode == NodeMode.MERGE:
-                    merged += total - new
-                else:
-                    kept += total - new
-            relationship_groups: dict[RelationshipDefinition, list[Relationship]] = {}
-            for relationship in relationships:
-                key = RelationshipDefinition(relationship.type, relationship.source.label, relationship.target.label)
-                relationship_groups.setdefault(key, []).append(relationship)
-            written = sum(self._merge_relationships(tx, d, group) for d, group in relationship_groups.items())
-        return BatchResult(deleted, created, replaced, kept, written, merged)
-
-    @staticmethod
-    def _delete_descendants(tx: GraphTransaction, root: NodeRef) -> int:
-        rows = tx.run(
-            "MATCH (root:" + _name(root.label) + " {id: $id})-[path*1..]->(d) "
-            "WHERE all(r IN path WHERE type(r) IN $types) "
-            "WITH DISTINCT d DETACH DELETE d RETURN count(*) AS deleted",
-            {"id": root.id, "types": _COMPOSITION},
-        )
-        return _integer(rows[0]["deleted"])
-
-    @staticmethod
-    def _merge_nodes(tx: GraphTransaction, label: Label, mode: NodeMode, nodes: list[BatchNode]) -> tuple[int, int]:
-        """(created, total) of a group of nodes with the same label and mode."""
-        assignments: dict[NodeMode, LiteralString] = {
-            NodeMode.REPLACE: "SET n = row.properties, n.id = row.id ",
-            NodeMode.ENSURE: "ON CREATE SET n = row.properties, n.id = row.id ",
-            NodeMode.MERGE: "SET n += row.properties ",
-        }
-        rows = tx.run(
-            "UNWIND $rows AS row OPTIONAL MATCH (old:"
-            + _name(label)
-            + " {id: row.id}) WITH row, old IS NULL AS new MERGE (n:"
-            + _name(label)
-            + " {id: row.id}) "
-            + assignments[mode]
-            + "RETURN count(*) AS total, sum(CASE WHEN new THEN 1 ELSE 0 END) AS created",
-            {"rows": [{"id": n.id, "properties": n.properties} for n in nodes]},
-        )
-        return _integer(rows[0]["created"]), _integer(rows[0]["total"])
-
-    @staticmethod
-    def _merge_relationships(
-        tx: GraphTransaction, definition: RelationshipDefinition, relationships: list[Relationship]
-    ) -> int:
-        """Merges a group of relationships with the same definition; BatchError if any end is missing."""
-        rows = tx.run(
-            "UNWIND $rows AS row MATCH (a:"
-            + _name(definition.source)
-            + " {id: row.source}) MATCH (b:"
-            + _name(definition.target)
-            + " {id: row.target}) MERGE (a)-[r:"
-            + _name(definition.type)
-            + "]->(b) SET r = row.properties RETURN row.source AS source, row.target AS target",
-            {
-                "rows": [
-                    {"source": r.source.id, "target": r.target.id, "properties": r.properties} for r in relationships
-                ]
-            },
-        )
-        merged = {(str(row["source"]), str(row["target"])) for row in rows}
-        missing = [r for r in relationships if (r.source.id, r.target.id) not in merged]
-        if missing:
-            listed = ", ".join(
-                f"({definition.source} {r.source.id!r})-[:{definition.type}]->({definition.target} {r.target.id!r})"
-                for r in missing[:_MAX_LISTED]
-            )
-            more = f" and {len(missing) - _MAX_LISTED} more" if len(missing) > _MAX_LISTED else ""
-            raise BatchError(f"{len(missing)} relationships have an end that doesn't exist: {listed}{more}")
-        return len(relationships)
+        """Everything in one transaction (see GraphBatchWriter)."""
+        return GraphBatchWriter(self._graph).write(nodes, relationships, replace_from)

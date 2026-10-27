@@ -5,7 +5,6 @@ in the graph as an error when possible, and the run goes on. Only the source or 
 """
 
 from collections.abc import Callable, Iterator
-from dataclasses import replace
 from datetime import datetime
 
 from chunking.models import (
@@ -26,6 +25,7 @@ from chunking.models import (
 )
 
 from .hierarchy import Hierarchy
+from .progress import advanced
 from .selection import Selection
 
 type ProgressCallback = Callable[[RunProgress], None]
@@ -63,9 +63,7 @@ class _Run:
         self.processed: dict[str, ProcessedDocument] = {}
 
     def count(self, **changes: int) -> None:
-        self.progress = replace(
-            self.progress, **{name: getattr(self.progress, name) + value for name, value in changes.items()}
-        )
+        self.progress = advanced(self.progress, **changes)
         self.on_progress(self.progress)
 
     def fail(self, error: str, origin: str | None, sha256: str | None) -> None:

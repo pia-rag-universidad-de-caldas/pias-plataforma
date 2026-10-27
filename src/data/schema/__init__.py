@@ -1,5 +1,7 @@
-"""Graph schema: which relationships exist between which labels."""
+"""Graph schema: which relationships exist between which labels, which ones are composition, and the rules of a
+batch."""
 
-from .piaa_schema import RELATIONSHIPS, allowed, definition
+from .batch_rules import batch_problems
+from .piaa_schema import COMPOSITION, RELATIONSHIPS, allowed, definition
 
-__all__ = ["RELATIONSHIPS", "allowed", "definition"]
+__all__ = ["COMPOSITION", "RELATIONSHIPS", "allowed", "batch_problems", "definition"]

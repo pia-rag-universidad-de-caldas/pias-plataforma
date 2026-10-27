@@ -16,8 +16,10 @@ from ingesta.models import (
     FileFailure,
     FileInfo,
     FileMetadata,
+    FileReader,
     FileRecord,
     FileRepository,
+    FileWriter,
     MemoryStoreError,
     OrganizationPlan,
     Relocation,
@@ -36,6 +38,28 @@ OnFailure = Callable[[FileFailure], None]
 
 def _ignore(*_args: object) -> None:
     """Default callback: reports nothing."""
+
+
+def _fill[V](
+    pending: list[FileRecord],
+    read: Callable[[FileRecord], V],
+    save: Callable[[list[tuple[str, V]]], None],
+    on_progress: OnProgress,
+    on_failure: OnFailure,
+) -> None:
+    """Reads a value of each old record and saves them in batches of HASH_BATCH; a file that fails is reported and
+    skipped (the next run tries it again)."""
+    batch: list[tuple[str, V]] = []
+    for i, record in enumerate(pending, 1):
+        try:
+            batch.append((record.origen, read(record)))
+        except FileError as e:
+            on_failure(FileFailure(record.origen, str(e), record.destino))
+        if i % HASH_BATCH == 0:
+            save(batch)
+            batch.clear()
+            on_progress(i, len(pending))
+    save(batch)
 
 
 class Organization:
@@ -92,47 +116,31 @@ class Organization:
     @staticmethod
     def fill_hashes(
         repo: FileRepository,
-        ingest: FileAdapter,
+        ingest: FileReader,
         pending: list[FileRecord],
         on_progress: OnProgress = _ignore,
         on_failure: OnFailure = _ignore,
     ) -> None:
         """Computes the hash of files processed before the sha256 column existed."""
-        batch: list[tuple[str, str]] = []
-        for i, record in enumerate(pending, 1):
-            try:
-                batch.append((record.origen, ingest.hash(record.destino)))
-            except FileError as e:
-                on_failure(FileFailure(record.origen, str(e), record.destino))
-            if i % HASH_BATCH == 0:
-                repo.save_hashes(batch)
-                batch.clear()
-                on_progress(i, len(pending))
-        repo.save_hashes(batch)
+        _fill(pending, lambda r: ingest.hash(r.destino), repo.save_hashes, on_progress, on_failure)
 
     @staticmethod
     def fill_metadata(
         repo: FileRepository,
-        base: FileAdapter,
-        ingest: FileAdapter,
+        base: FileReader,
+        ingest: FileReader,
         pending: list[FileRecord],
         on_progress: OnProgress = _ignore,
         on_failure: OnFailure = _ignore,
     ) -> None:
         """Metadata of files processed before feature 009: from the original in base/ or, if it was moved, from the
         copy in ingesta/ (copy2 keeps dates and permissions)."""
-        batch: list[tuple[str, FileMetadata]] = []
-        for i, record in enumerate(pending, 1):
-            try:
-                info = base.info(record.origen) if base.is_file(record.origen) else ingest.info(record.destino)
-                batch.append((record.origen, read_metadata(info, record.nombre)))
-            except FileError as e:
-                on_failure(FileFailure(record.origen, str(e), record.destino))
-            if i % HASH_BATCH == 0:
-                repo.save_metadata(batch)
-                batch.clear()
-                on_progress(i, len(pending))
-        repo.save_metadata(batch)
+
+        def metadata(record: FileRecord) -> FileMetadata:
+            info = base.info(record.origen) if base.is_file(record.origen) else ingest.info(record.destino)
+            return read_metadata(info, record.nombre)
+
+        _fill(pending, metadata, repo.save_metadata, on_progress, on_failure)
 
     @staticmethod
     def _record(file: SourceFile, target: str, info: FileInfo, sha: str, action: str) -> FileRecord:
@@ -163,22 +171,23 @@ class Organization:
     @staticmethod
     def execute(
         plan: OrganizationPlan,
-        base: FileAdapter,
+        base: FileReader,
         ingest: FileAdapter,
         repo: FileRepository,
         runs: RunRepository,
-        move: bool,
+        move: FileWriter | None,
         on_progress: OnProgress = _ignore,
         on_failure: OnFailure = _ignore,
         progress_every: int = PROGRESS_EVERY,
     ) -> RunResult:
-        """Copies (or moves) each new file and registers it in the memory.
+        """Copies (or moves) each new file and registers it in the memory. `move` is the writer of base/ when
+        moving (each original is deleted from it once registered); None copies, and base/ is only read.
 
         An error with a file doesn't stop the run:
         - before registering it: the copy, if made, is deleted and the next run retries it;
         - when deleting the original (--move): it stays registered as "copiado", because it is still in base/.
         """
-        action = "movido" if move else "copiado"  # stored in the memory: values stay as they are
+        action = "movido" if move is not None else "copiado"  # stored in the memory: values stay as they are
         result = RunResult()
         run_id = runs.start(Organization._now(), action)
         try:
@@ -195,8 +204,8 @@ class Organization:
                     repo.insert(Organization._record(file, target, info, sha, action))
                     registered = True
                     # The original is deleted only once the memory has been saved.
-                    if move:
-                        base.delete(file.path)
+                    if move is not None:
+                        move.delete(file.path)
                 except (FileError, MemoryStoreError) as e:
                     if registered:
                         repo.update_action(file.path, "copiado")

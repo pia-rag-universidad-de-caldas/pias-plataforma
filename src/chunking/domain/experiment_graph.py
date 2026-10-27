@@ -239,43 +239,15 @@ class ExperimentGraph:
         links: list[GraphLink] = []
         chunks = 0
         for assignment, pieces in assignments:
-            section = assignment.section
-            key = NodeKey(GraphLabel.EXP_SECCION, ExperimentGraph.section_id(experiment, sha256, assignment.index))
-            nodes.append(
-                GraphNode(
-                    key,
-                    ExperimentSectionProperties(
-                        indice=assignment.index,
-                        titulo=section.title,
-                        nivel=section.level,
-                        paginas=section.pages,
-                        regla=rule_name(assignment.rule),
-                        estrategia=assignment.parameters.strategy.value,
-                        parametros=_json(strategy_json(assignment.parameters)),
-                        chunks=len(pieces),
-                        tokens=sum(p.tokens for p in pieces),
-                    ),
-                )
-            )
+            section = ExperimentGraph._section(experiment, sha256, assignment, pieces)
+            nodes.append(section)
             links += [
-                GraphLink(GraphRelation.EXP_GENERA, root, key),
-                GraphLink(GraphRelation.EXP_TIENE_SECCION, doc, key),
+                GraphLink(GraphRelation.EXP_GENERA, root, section.key),
+                GraphLink(GraphRelation.EXP_TIENE_SECCION, doc, section.key),
             ]
-            for k, piece in enumerate(pieces):
-                chunk = NodeKey(GraphLabel.EXP_CHUNK, ExperimentGraph.chunk_id(experiment, sha256, assignment.index, k))
-                nodes.append(
-                    GraphNode(
-                        chunk,
-                        ExperimentChunkProperties(
-                            indice=k,
-                            texto=piece.text,
-                            encabezados=piece.headings,
-                            paginas=piece.pages,
-                            tokens=piece.tokens,
-                        ),
-                    )
-                )
-                links.append(GraphLink(GraphRelation.EXP_TIENE_CHUNK, key, chunk))
+            for chunk in ExperimentGraph._chunks(experiment, sha256, assignment.index, pieces):
+                nodes.append(chunk)
+                links.append(GraphLink(GraphRelation.EXP_TIENE_CHUNK, section.key, chunk.key))
             chunks += len(pieces)
         summary: ExperimentUseProperties = {
             "sha256": sha256,
@@ -293,3 +265,35 @@ class ExperimentGraph:
         }
         links.insert(0, GraphLink(GraphRelation.EXP_USA, root, doc, summary))
         return GraphBatch(nodes, links)
+
+    @staticmethod
+    def _section(experiment: str, sha256: str, assignment: SectionAssignment, pieces: list[ChunkPiece]) -> GraphNode:
+        """The EXP_SECCION of a section: where it is, which rule took it and with which strategy and parameters."""
+        section = assignment.section
+        return GraphNode(
+            NodeKey(GraphLabel.EXP_SECCION, ExperimentGraph.section_id(experiment, sha256, assignment.index)),
+            ExperimentSectionProperties(
+                indice=assignment.index,
+                titulo=section.title,
+                nivel=section.level,
+                paginas=section.pages,
+                regla=rule_name(assignment.rule),
+                estrategia=assignment.parameters.strategy.value,
+                parametros=_json(strategy_json(assignment.parameters)),
+                chunks=len(pieces),
+                tokens=sum(p.tokens for p in pieces),
+            ),
+        )
+
+    @staticmethod
+    def _chunks(experiment: str, sha256: str, section: int, pieces: list[ChunkPiece]) -> list[GraphNode]:
+        """The EXP_CHUNK of a section, in order."""
+        return [
+            GraphNode(
+                NodeKey(GraphLabel.EXP_CHUNK, ExperimentGraph.chunk_id(experiment, sha256, section, k)),
+                ExperimentChunkProperties(
+                    indice=k, texto=piece.text, encabezados=piece.headings, paginas=piece.pages, tokens=piece.tokens
+                ),
+            )
+            for k, piece in enumerate(pieces)
+        ]

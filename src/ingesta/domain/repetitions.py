@@ -14,7 +14,7 @@ import math
 import re
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from itertools import pairwise
 from typing import ClassVar
@@ -82,17 +82,34 @@ class Repetitions:
     # --- comparison between uploads ---
 
     @staticmethod
+    def _exact_copy(previous: FileRecord, current: FileRecord) -> bool:
+        return Repetitions._has_content(current) and previous.sha256 == current.sha256 and previous.bytes > 0
+
+    @staticmethod
+    def _no_piaa(previous: FileRecord, current: FileRecord) -> bool:
+        return Repetitions.is_no_piaa(previous) or Repetitions.is_no_piaa(current)
+
+    @staticmethod
+    def _other_format(previous: FileRecord, current: FileRecord) -> bool:
+        return previous.tipo != current.tipo
+
+    @staticmethod
+    def _same_name(previous: FileRecord, current: FileRecord) -> bool:
+        name = Repetitions.name_without_prefix
+        return name(previous.nombre).casefold() == name(current.nombre).casefold()
+
+    # Checked in the order of Reason: the first one that holds wins (OTHER_NAME when none does). A new reason is its
+    # value in Reason and its rule here.
+    _RULES: ClassVar[dict[Reason, Callable[[FileRecord, FileRecord], bool]]] = {
+        Reason.EXACT_COPY: _exact_copy,
+        Reason.NO_PIAA: _no_piaa,
+        Reason.OTHER_FORMAT: _other_format,
+        Reason.SAME_NAME: _same_name,
+    }
+
+    @staticmethod
     def reason(previous: FileRecord, current: FileRecord) -> Reason:
-        if Repetitions._has_content(current) and previous.sha256 == current.sha256 and previous.bytes > 0:
-            return Reason.EXACT_COPY
-        if Repetitions.is_no_piaa(previous) or Repetitions.is_no_piaa(current):
-            return Reason.NO_PIAA
-        if previous.tipo != current.tipo:
-            return Reason.OTHER_FORMAT
-        previous_name = Repetitions.name_without_prefix(previous.nombre).casefold()
-        if previous_name == Repetitions.name_without_prefix(current.nombre).casefold():
-            return Reason.SAME_NAME
-        return Reason.OTHER_NAME
+        return next((r for r, holds in Repetitions._RULES.items() if holds(previous, current)), Reason.OTHER_NAME)
 
     @staticmethod
     def _seconds(previous: FileRecord, current: FileRecord) -> float:

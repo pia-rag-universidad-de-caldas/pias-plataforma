@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from ingesta.adapters import LocalFileAdapter, create_adapter, open_source
-from ingesta.domain import Ingestion
+from ingesta.domain import Ingestion, IngestionObserver
 from ingesta.models import (
     FileError,
     FileFailure,
@@ -93,6 +93,19 @@ class IngestionRegistry:
             self._runs[id] = replace(run, estado=state, fin=now(), progreso=progress, resultado=result, error=error)
 
 
+class _RegistryObserver(IngestionObserver):
+    """A run's copies and failures, into its entry of the registry (GET /runs/{id})."""
+
+    def __init__(self, registry: IngestionRegistry, id: str) -> None:
+        self._registry, self._id = registry, id
+
+    def copied(self, done: int, total: int) -> None:
+        self._registry.progress(self._id, done)
+
+    def failed(self, failure: FileFailure) -> None:
+        self._registry.failure(self._id, failure)
+
+
 def work(registry: IngestionRegistry, id: str, settings: ApiSettings, plan: OrganizationPlan) -> None:
     """Runs one ingestion (in its thread): copies the new files of the source, never moving them, and places the
     corpus. A failure of the whole run (memory down, source gone...) leaves it as fallida with the reason."""
@@ -111,8 +124,7 @@ def work(registry: IngestionRegistry, id: str, settings: ApiSettings, plan: Orga
                 DbFileRepository(data),
                 DbRunRepository(data),
                 DbCategoryRepository(data),
-                on_progress=lambda done, _total: registry.progress(id, done),
-                on_failure=lambda failure: registry.failure(id, failure),
+                _RegistryObserver(registry, id),
                 progress_every=1,
             )
         finally:

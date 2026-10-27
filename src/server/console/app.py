@@ -243,7 +243,10 @@ class Console:
         )
         lines = [text.description, f"API: {operation.method} {operation.module.prefix}{operation.path}"]
         if operation.fields:
-            lines.append("* obligatorio · ▾ Enter: lista de valores · ✎ Enter: editor · listas separadas por comas")
+            lines.append(
+                "* obligatorio · ▾ Enter: lista de valores (Espacio marca, Enter acepta) · ✎ Enter: editor · "
+                "listas separadas por comas"
+            )
         return "\n".join(lines)
 
     def _run(self, operation: Operation, preset: Mapping[str, str] | None = None) -> None:

@@ -28,6 +28,7 @@ _parsers = import_module("asciimatics.parsers")
 BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
 BOLD, NORMAL = 1, 2
 ENTER = (10, 13)
+SPACE = 32
 FRAME_TIME = 0.05
 HELP_HEIGHT = 7
 EMPTY = "(vacío)"
@@ -166,6 +167,18 @@ def _show_from_top(listing: Widget) -> None:
     height (as when coming back to a menu) leaves the selection at the top and hides the lines above it."""
     listing._start_line = 0
     listing.value = listing.value
+
+
+def _space_list_event(listing: Widget, event: Widget) -> Widget:
+    """A ListBox where Space calls `on_space` (asciimatics would use it to jump to an item starting with a space)."""
+    if _is_key(event, SPACE) and listing.on_space is not None:
+        listing.on_space()
+        return None
+    return _widgets.ListBox.process_event(listing, event)
+
+
+# Built with type() so that it isn't a class statement subclassing an untyped (Any) base.
+_SpaceList = type("_SpaceList", (_widgets.ListBox,), {"on_space": None, "process_event": _space_list_event})
 
 
 def _is_key(event: Widget, *codes: int) -> bool:
@@ -393,8 +406,9 @@ class Screens:
     def checklist(
         self, title: str, intro: str, options: Sequence[tuple[str, str]], chosen: Sequence[str], single: bool
     ) -> list[str] | None:
-        """The values marked (Enter marks or unmarks; with `single`, only one at a time), or None to leave them as
-        they were. Typing filters the list; «Usar lo escrito» adds the text itself."""
+        """The values marked, or None to leave them as they were. Space marks or unmarks (with `single`, only one at
+        a time) and Enter accepts: what is marked, or the highlighted value if nothing is. Typing in «buscar» filters
+        the list; «Usar lo escrito» adds the text itself."""
         marked = list(chosen)
 
         def matching(text: str) -> list[tuple[str, str]]:
@@ -424,26 +438,34 @@ class Screens:
                     for i, (v, d) in enumerate(shown)
                 ]  # fmt: skip
 
-            def toggle() -> None:
+            def highlighted() -> str | None:
                 shown = matching(search.value)
                 if listing.value is None or listing.value >= len(shown):
+                    return None
+                return str(shown[listing.value][0])
+
+            def toggle() -> None:
+                value = highlighted()
+                if value is None:
                     return
-                value = shown[listing.value][0]
                 if value in marked:
                     marked.remove(value)
                 else:
                     if single:
                         marked.clear()
                     marked.append(value)
-                if single:
-                    answer.give(list(marked))
                 line = listing.value
                 listing.options = rows(search.value)
                 listing.value = line
 
-            listing: Widget = _widgets.ListBox(
-                _widgets.Widget.FILL_FRAME, rows(""), parser=_parsers.AsciimaticsParser(), on_select=toggle
+            def accept() -> None:
+                value = highlighted()
+                answer.give(list(marked) if marked or value is None else [value])
+
+            listing: Widget = _SpaceList(
+                _widgets.Widget.FILL_FRAME, rows(""), parser=_parsers.AsciimaticsParser(), on_select=accept
             )
+            listing.on_space = toggle
 
             def refilter() -> None:
                 listing.options = rows(search.value)
@@ -466,19 +488,19 @@ class Screens:
             middle.add_widget(listing)
             bottom = _widgets.Layout([1, 1, 1, 1])
             frame.add_layout(bottom)
-            bottom.add_widget(_widgets.Button("Aceptar", lambda: answer.give(list(marked))), 0)
+            bottom.add_widget(_widgets.Button("Aceptar", accept), 0)
             bottom.add_widget(_widgets.Button("Usar lo escrito", typed), 1)
             bottom.add_widget(_widgets.Button("Limpiar", lambda: answer.give([])), 2)
             bottom.add_widget(_widgets.Button("Volver", lambda: answer.give(None)), 3)
-            hint = "Enter elige" if single else "Enter marca o desmarca · «Aceptar» al terminar"
+            hint = "Espacio elige uno" if single else "Espacio marca o desmarca"
             foot = _widgets.Layout([1])
             frame.add_layout(foot)
-            foot.add_widget(_widgets.Label(f"escribe para filtrar · ↓ a la lista · {hint}", align="^"))
+            foot.add_widget(_widgets.Label(f"{hint} · Enter acepta · escribe en «buscar» para filtrar", align="^"))
             self._after.append(lambda: frame.switch_focus(middle, 0, 0))
 
             def keys(event: Widget) -> None:
                 if _is_key(event, *ENTER) and frame.focussed_widget is search:
-                    frame.switch_focus(middle, 0, 0)
+                    accept()
 
             return frame, keys
 

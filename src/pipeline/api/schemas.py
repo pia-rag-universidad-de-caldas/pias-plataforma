@@ -6,15 +6,11 @@ from typing import Literal
 
 from pydantic import ConfigDict
 
+from common.api import Error
 from pipeline.config import TEMPLATE
 from pipeline.models import JsonObject, JsonValue
 
 STRICT = ConfigDict(extra="forbid")
-
-
-@dataclass(frozen=True)
-class Error:
-    detail: str
 
 
 type Responses = dict[int | str, dict[str, object]]

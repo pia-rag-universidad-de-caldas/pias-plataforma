@@ -1,7 +1,11 @@
 # Guía de cambios en ingesta
 
 Paso a paso para los cambios más comunes en `src/ingesta/`: agregar o cambiar columnas de la memoria, agregar una tabla
-y cambiar reglas de dominio. Antes, leer [arquitectura.md](arquitectura.md) (capas y reglas de importación).
+y cambiar reglas de dominio (estas, en detalle, en [guia-reglas-ingesta.md](guia-reglas-ingesta.md)). Antes, leer
+[arquitectura.md](arquitectura.md) (capas y reglas de importación).
+
+> La ingesta corre por la API (`POST /ingesta/runs`) o desde la consola: el comando `organize` ya no existe (feature
+> 034). Las verificaciones de abajo levantan un servidor sobre una **copia** de la memoria.
 
 ## Antes de cualquier cambio
 
@@ -13,7 +17,11 @@ y cambiar reglas de dominio. Antes, leer [arquitectura.md](arquitectura.md) (cap
 
    ```bash
    cp data/ingesta/.memoria.sqlite3 /tmp/base.sqlite3
-   uv run prueba-chunking organize --simulate --memory /tmp/base.sqlite3 > /tmp/antes.txt
+   uv run prueba-chunking serve --memory /tmp/base.sqlite3 --port 18000 </dev/null > /tmp/serve.log 2>&1 &
+   curl -s localhost:18000/ingesta/stats > /tmp/stats-antes.json
+   curl -s -XPOST localhost:18000/ingesta/runs -H 'Content-Type: application/json' -d '{"simulate": true}' \
+     > /tmp/sim-antes.json
+   kill %1
    ```
 
 ## Dónde vive cada cosa
@@ -54,7 +62,7 @@ models/entities.py ─► tables/files_table.py ─► (needs_migration) ─► 
    `utils.read_metadata`; el dominio nunca usa `pathlib`.
 5. **Llenarla en los registros viejos** (si hace falta): como `fill_metadata`, un repositorio que liste los registros
    sin el dato (`without_<dato>`), un método que los guarde (`save_<dato>`: `search` de todos, `dataclasses.replace` y
-   un `update` de la lista) y una llamada desde `cli.py` en `organize`. Declarar ambos métodos en el `Protocol`
+   un `update` de la lista) y una llamada desde `Ingestion.run` (`domain/ingestion.py`), como las de `fill_hashes` y `fill_metadata`. Declarar ambos métodos en el `Protocol`
    `FileRepository` (`models/persistence.py`) y en `DbFileRepository`.
 6. **Usarla:** si va en las estadísticas, en `domain/statistics.py` (y `models/report.py`, que da las claves de
    `/stats`). En la API, `GET /ingesta/data` y `/data/file` devuelven `FileRecord`
@@ -79,50 +87,32 @@ nombre): para conservarlos hace falta un paso de copia explícito en el adaptado
 
 ## Flujo: cambiar una regla de dominio
 
-Las reglas de clasificación viven en `domain/classification.py`. Cada paso de `Classifier.classify` es un método
-estático: `file_tags` (vacío/extraño/incompleto), `hash_duplicates`, `code_duplicates`, `current_tags`
-(vigente/apto) y `principal` (la categoría que decide la carpeta).
-
-### Cambiar un parámetro (umbral, tipos soportados, equivalencias)
-
-Solo `config/settings.py`: `ALMOST_EMPTY_THRESHOLD`, `SUPPORTED_TYPES`, `EQUIVALENT_EXTENSIONS`… No hace falta migrar:
-la clasificación se recalcula con todo el corpus en cada `organize`, y `Organization.relocate` mueve a su carpeta nueva
-lo que cambió de categoría (con `--simulate` solo lo informa).
-
-### Cambiar cómo se decide una categoría
-
-1. Cambiar el método correspondiente del `Classifier` (por ejemplo, `code_duplicates` para otra forma de elegir el
-   representante de un código). Mantenerlo sin efectos: recibe registros, devuelve conjuntos u orígenes.
-2. Actualizar el docstring del módulo (la lista de categorías explica cada regla).
-3. Si cambia lo que significa una categoría, actualizar su descripción en `Classifier._DESCRIPTIONS` (va al catálogo
-   `categorias` de la memoria; `sync_catalog` la actualiza sola en el próximo `organize`).
-
-### Agregar una categoría nueva
-
-1. Valor nuevo en `Category` (`models/concepts.py`). **El orden del enum es la prioridad**: ubicarlo donde corresponda.
-   El valor (`"mi_categoria"`) se guarda en la memoria y sale en consola: elegirlo bien, no se cambia después.
-2. Su carpeta: constante `MI_CATEGORIA_FOLDER` en `config/settings.py` y entrada en `Naming._FOLDERS`
-   (`domain/naming.py`).
-3. Su descripción en `Classifier._DESCRIPTIONS` y la regla que la asigna en el paso que corresponda del `Classifier`.
-4. Si un archivo **nuevo** puede caer en ella antes de conocer su hash, revisar `Naming.provisional_category`.
-5. Revisar quién filtra por categoría: `GET /ingesta/data` (aptos), `domain/statistics.py` (embudo de limpieza).
-6. No hace falta migrar: el catálogo se sincroniza y `archivos_categorias` se recalcula en el próximo `organize`.
+Ver [guia-reglas-ingesta.md](guia-reglas-ingesta.md): dónde vive cada regla, sus tests, el método (test primero,
+simulación antes y después) y recetas para cambiar un umbral, cómo se decide una categoría, agregar una categoría, un
+motivo de repetición o un problema de la revisión del origen.
 
 ## Verificar
 
 ```bash
-uv run ruff format && uv run ruff check && uv run mypy
+uv run ruff format && uv run ruff check && uv run mypy && uv run pytest
 cp data/ingesta/.memoria.sqlite3 /tmp/despues.sqlite3            # copia nueva: la migración corre al abrirla
-uv run prueba-chunking organize --simulate --memory /tmp/despues.sqlite3 > /tmp/despues.txt
-diff /tmp/antes.txt /tmp/despues.txt                              # solo deben cambiar las cosas que el spec dice
+uv run prueba-chunking serve --memory /tmp/despues.sqlite3 --port 18000 </dev/null > /tmp/serve.log 2>&1 &
+curl -s localhost:18000/ingesta/stats > /tmp/stats-despues.json
+curl -s -XPOST localhost:18000/ingesta/runs -H 'Content-Type: application/json' -d '{"simulate": true}' \
+  > /tmp/sim-despues.json
+kill %1
+diff <(jq -S . /tmp/sim-antes.json) <(jq -S . /tmp/sim-despues.json)        # solo lo que el spec dice
+diff <(jq -S . /tmp/stats-antes.json) <(jq -S . /tmp/stats-despues.json)
 ```
 
-- **Refactor sin cambio de comportamiento:** mismo `--simulate` y mismas respuestas de la API (`/ingesta/stats`
+- **Refactor sin cambio de comportamiento:** misma simulación y mismas respuestas de la API (`/ingesta/stats`
   incluida).
-- **Cambio de esquema:** abrir la copia con `organize --simulate` prueba la migración; revisar que las filas sigan ahí (mismo total).
-- **Cambio de reglas:** el diff del `--simulate` debe mostrar solo las reubicaciones esperadas.
-- Probar una corrida real (`organize`, y `--move` si aplica) en carpetas temporales:
-  `--base /tmp/b --ingest /tmp/i --memory /tmp/m.sqlite3`.
+- **Cambio de esquema:** abrir la copia con el servidor prueba la migración; revisar que las filas sigan ahí (mismo
+  `archivos` en `/ingesta/stats`).
+- **Cambio de reglas:** la simulación debe mostrar solo los cambios esperados en `carpetas` y `reubicaria`.
+- Probar una corrida real con el servidor sobre carpetas temporales (`--base /tmp/b --ingest /tmp/i --memory
+  /tmp/m.sqlite3`) y `POST /ingesta/runs` sin `simulate`; los tests de `tests/ingesta/domain/test_organization.py` y
+  `tests/ingesta/api/test_ingestion_routes.py` hacen lo mismo con `tmp_path`.
 - La API: `http/ingesta/*.http` contra el servidor (ver [api.md](api.md)).
 
 Al final: tachar las tareas en `tasks.md`, marcar el spec como implementado y actualizar `CLAUDE.md` y el roadmap.

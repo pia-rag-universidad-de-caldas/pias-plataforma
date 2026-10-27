@@ -1,7 +1,8 @@
 """Ingestion process (feature 030): check a source, copy what is new and classify the whole corpus.
 
-The steps of `organize`, without printing: the CLI and the API run them and each one reports through its own
-IngestionObserver. The source is a FileReader: only `organize --move` gives its writer, to delete the originals.
+The steps of an ingestion, without printing: the API runs them and reports through its own IngestionObserver. The
+source is a FileReader: only a caller passing `move` gives its writer, to delete the originals (no command does since
+the CLI of ingesta was removed, feature 033).
 """
 
 from collections import Counter
@@ -156,7 +157,7 @@ class Ingestion:
         move: FileWriter | None = None,
     ) -> IngestionOutcome:
         """Fills what old records miss, copies the new files, places the corpus and sums up the duplicates. `move` is
-        the writer of the source when moving (the CLI's --move); the API never passes it: its source stays intact.
+        the writer of the source when moving; the API never passes it: its source stays intact.
         An error with a file doesn't stop it (see Organization.execute)."""
         report = observer or IngestionObserver()
         hashes = repo.without_hash()

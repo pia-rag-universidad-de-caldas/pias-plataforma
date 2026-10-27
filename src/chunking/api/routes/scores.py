@@ -8,11 +8,10 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
 
 from chunking.api.dependencies import Store
-from chunking.api.experiment_schemas import ExperimentScores, NewScore, ScorePatch
-from chunking.api.schemas import Error
-from chunking.domain import InvalidParameters, Scoring
-from chunking.domain.experiment_runner import now
+from chunking.api.experiments.schemas import ExperimentScores, NewScore, ScorePatch
+from chunking.domain import InvalidParameters, Scoring, now
 from chunking.models import ExperimentStore, Score
+from common.api import Error
 
 router = APIRouter(prefix="/experiments/{id}/scores", tags=["scores"])
 

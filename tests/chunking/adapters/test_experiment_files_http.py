@@ -6,8 +6,7 @@ import json
 
 import httpx
 
-from chunking.adapters import IngestaHttpSource
-from chunking.adapters.experiment_store import GraphExperimentStore
+from chunking.adapters import GraphExperimentStore, IngestaHttpSource
 from chunking.adapters.http import Json
 from chunking.domain import ExperimentRunner
 from chunking.models import (

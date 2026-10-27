@@ -6,10 +6,11 @@ from fastapi import APIRouter, HTTPException, status
 
 from chunking.adapters.docling_converter import MISSING
 from chunking.api.dependencies import DocumentConverter, Experiments, Registry, Settings
-from chunking.api.registry import launch, now
-from chunking.api.schemas import Error, NewRun
+from chunking.api.runs.registry import launch, now
+from chunking.api.runs.schemas import NewRun
 from chunking.config import TOKENIZERS
 from chunking.models import ChunkingParameters, ChunkingRun, DocumentFilter, RunRequest, RunStatus
+from common.api import Error
 
 router = APIRouter(tags=["runs"])
 

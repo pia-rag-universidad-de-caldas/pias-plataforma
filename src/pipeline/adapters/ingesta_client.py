@@ -8,7 +8,7 @@ import httpx
 
 from pipeline.models import IngestaPort, Selection, SourcePage, UnavailableError
 
-from .http import BaseHttpClient, QueryParams
+from .http import BaseHttpClient, QueryParams, errors
 
 
 def filter_params(selection: Selection) -> QueryParams:
@@ -24,7 +24,7 @@ def filter_params(selection: Selection) -> QueryParams:
 
 class IngestaClient(BaseHttpClient, IngestaPort):
     def __init__(self, client: httpx.Client, path: str) -> None:
-        super().__init__(client, path, "ingesta")
+        super().__init__(client, path, errors("ingesta"))
 
     def page(self, selection: Selection, page: int, per_page: int) -> SourcePage:
         body = self._object(

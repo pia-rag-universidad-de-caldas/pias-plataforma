@@ -5,14 +5,15 @@ description = "Ingesta, detección de duplicados y estadísticas de documentos a
 requires-python = ">=3.12"
 authors = [{ email = "sebastian.garzon54795@ucaldas.edu.co" }]
 dependencies = [
+    "asciimatics>=1.15.0",  # pantallas de la consola (feature 034): solo la importa server/console/screens.py
     "fastapi>=0.156.1",  # API HTTP de los módulos: solo la importan los paquetes api/ y server/
     "httpx>=0.28.1",  # cliente HTTP entre módulos del mismo servidor: solo lo importan los adapters/ (feature 021)
     "sqlalchemy>=2.1.4",  # ORM: solo lo importa adapters/
-    "uvicorn>=0.54.0",  # servidor ASGI: solo lo importan server/ y los api/server.py sueltos
+    "uvicorn>=0.54.0",  # servidor ASGI: solo lo importan server/ y data/api/server.py
 ]
 
 [project.scripts]
-prueba-chunking = "server.cli:main"  # servidor único (feature 020): organize/stats de ingesta y serve de todo
+prueba-chunking = "server.cli:main"  # consola (feature 034, por defecto) y serve: el servidor único (feature 020)
 prueba-chunking-data = "data.cli:main"  # API del grafo PIAA (requiere el extra data)
 
 [project.optional-dependencies]
@@ -33,7 +34,7 @@ requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["ingesta", "data", "chunking", "pipeline", "server"]  # los paquetes en src/ no se llaman como el proyecto (prueba-chunking)
+module-name = ["ingesta", "data", "chunking", "pipeline", "server", "common"]  # los paquetes en src/ no se llaman como el proyecto (prueba-chunking)
 
 [tool.ruff]
 line-length = 120
@@ -86,6 +87,7 @@ allowed-confusables = ["×", "–"]
 "src/chunking/api/**" = ["TID251"]
 "src/pipeline/adapters/**" = ["TID251"]
 "src/pipeline/api/**" = ["TID251"]
+"src/common/**" = ["TID251"]  # infraestructura compartida (feature 033): httpx y FastAPI; no importa módulos (lo revisa un test)
 "src/server/**" = ["TID251"]  # raíz de composición: importa FastAPI, uvicorn y todos los módulos
 "tests/**" = ["TID251"]  # los tests arman clientes httpx con MockTransport (feature 026)
 

@@ -127,7 +127,8 @@ api/routes/ ──► repository/piaa_repository.py (PiaaRepository: arma el Cyp
 - **Escritura masiva.** `POST /data/batch` escribe nodos y relaciones en **una transacción** (todo o nada). Cada nodo
   tiene un modo: `replace` (sus propiedades pasan a ser las enviadas), `ensure` (solo se crea si no existe) o `merge`
   (pone las enviadas y conserva las demás). `replace_from` borra antes los descendientes de un nodo siguiendo solo las
-  relaciones de **composición** (`_COMPOSITION` en el repositorio).
+  relaciones de **composición** (`COMPOSITION`, junto al esquema en `schema/piaa_schema.py`; la escritura del lote es
+  `repository/batch_writer.py` y su validación `schema/batch_rules.py`).
 
 ## chunking por dentro
 
@@ -137,18 +138,19 @@ api/routes/ ──► repository/piaa_repository.py (PiaaRepository: arma el Cyp
   error de mypy.
 - **Puertos** (`models/ports.py`): de dónde salen los documentos (`ChunkSource`, ingesta), dónde se guardan
   (`ChunkSink`, el store de experimentos) y quién convierte (`Converter`, Docling). El dominio solo conoce los puertos.
-- **Dominio** (`domain/`): `Runner` (corridas 023), `ExperimentRunner` y `Plan` (experimentos 025: qué regla toma cada
-  sección), `Selection` (qué está pendiente según el `fingerprint` de los parámetros), `Hierarchy` y
-  `experiment_graph.py` (arman los lotes de nodos para el grafo), `scoring.py` (puntuaciones).
+- **Dominio** (`domain/`): `production/` (corridas 023: `Runner`, `Selection` —qué está pendiente según el
+  `fingerprint` de los parámetros— y `Hierarchy`, que arma el lote para el grafo) y `experiments/` (025: `ExperimentRunner`,
+  `Planner` —qué regla toma cada sección—, `Parameters`, `graph.py` —el lote del experimento—, `scoring.py` y
+  `promotion.py`).
 - **Adaptadores** (`adapters/`):
   - `docling_converter.py`: Docling (import diferido; sin el extra `chunk` todo lo demás funciona).
   - `strategies/`: una estrategia de chunking por archivo (`hybrid`, `element`, `section`, `page`, `fixed`, `points`,
     `semantic`), sobre el documento ya convertido.
-  - `http/` (feature 026): `base_client.py`, el único que llama a `httpx`, con la traducción de errores y la
-    paginación; `adapters/ingesta/` y `adapters/data/` tienen un cliente delgado por recurso y los **mappers**, el
+  - `http/` (feature 026): reexporta el cliente base de `common.http` (feature 033), el único que llama a `httpx`, con
+    la traducción de errores y la paginación, y tiene la sonda de salud (`probe.py`); `adapters/ingesta/` y `adapters/data/` tienen un cliente delgado por recurso y los **mappers**, el
     único lugar donde los nombres en español (columnas, propiedades del grafo) se convierten en modelos en inglés.
-  - `ingesta_source.py`, `graph_sink.py`, `experiment_store.py`: fachadas que implementan los puertos usando esos
-    clientes.
+  - `ingesta/source.py`, `data/sink.py`, `data/experiment_store.py`: fachadas que implementan los puertos usando
+    esos clientes; `session.py` las arma para una corrida.
 - Las corridas y los experimentos corren **en un hilo propio**: hacen peticiones HTTP al mismo servidor, que tiene que
   seguir libre para contestarlas. Hay un solo trabajo pesado a la vez (409 si ya hay otro).
 

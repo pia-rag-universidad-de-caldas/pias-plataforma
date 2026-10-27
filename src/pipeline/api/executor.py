@@ -34,7 +34,7 @@ from pipeline.models import (
     json_list,
 )
 
-from .actors import ActorRegistry
+from .actor_registry import ActorRegistry
 
 LOG = logging.getLogger(__name__)
 QUEUES = ("ingesta", "chunking", "data")

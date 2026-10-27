@@ -6,9 +6,9 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 
 from chunking.api.dependencies import Catalog
-from chunking.api.schemas import Error
 from chunking.config import MAX_PER_PAGE, PER_PAGE
 from chunking.models import DocumentChunks, DocumentPage, ProcessedDocument
+from common.api import Error
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

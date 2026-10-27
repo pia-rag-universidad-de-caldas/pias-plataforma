@@ -3,25 +3,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
+from fastapi import FastAPI, status
 
+from common.api import error_handlers
 from data.models import GraphAdapter, GraphError
 
 from .app_info import VERSION
 from .dependencies import ApiSettings
 from .routes import ROUTERS
-
-
-async def _graph_error(_: Request, error: Exception) -> JSONResponse:
-    return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"detail": str(error)})
-
-
-async def _http_error(_: Request, error: Exception) -> JSONResponse:
-    """HTTP errors (a 404 from a route or from a URL that doesn't exist...) with the same {"detail"} body."""
-    assert isinstance(error, HTTPException)
-    return JSONResponse(status_code=error.status_code, content={"detail": error.detail}, headers=error.headers)
 
 
 def create_app(settings: ApiSettings, graph: GraphAdapter) -> FastAPI:
@@ -42,8 +31,7 @@ def create_app(settings: ApiSettings, graph: GraphAdapter) -> FastAPI:
     )
     app.state.settings = settings
     app.state.graph = graph
-    app.add_exception_handler(GraphError, _graph_error)
-    app.add_exception_handler(HTTPException, _http_error)
+    error_handlers(app, {GraphError: status.HTTP_503_SERVICE_UNAVAILABLE})
     for router in ROUTERS:
         app.include_router(router)
     return app

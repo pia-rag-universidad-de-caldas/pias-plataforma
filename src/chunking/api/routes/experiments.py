@@ -14,9 +14,9 @@ from chunking.adapters import HttpSession
 from chunking.adapters.docling_converter import MISSING
 from chunking.adapters.strategies import MISSING as NO_TRANSFORMERS
 from chunking.api.dependencies import Chunker, DocumentConverter, Experiments, Registry, Settings, Store
-from chunking.api.experiment_registry import launch
-from chunking.api.experiment_requests import experiment_request
-from chunking.api.experiment_schemas import (
+from chunking.api.experiments import experiment_request
+from chunking.api.experiments.registry import launch
+from chunking.api.experiments.schemas import (
     ChunkView,
     ComparedView,
     DocumentView,
@@ -30,15 +30,14 @@ from chunking.api.experiment_schemas import (
     PromotionView,
     SectionView,
 )
-from chunking.api.schemas import Error
 from chunking.config import CHUNK_PAGE_SIZE
 from chunking.domain import (
     ExperimentGraph,
     ExperimentRunner,
     Promotion,
     Scoring,
+    now,
 )
-from chunking.domain.experiment_runner import now
 from chunking.models import (
     ExperimentDocument,
     ExperimentRecord,
@@ -47,6 +46,7 @@ from chunking.models import (
     RunStatus,
     rule_name,
 )
+from common.api import Error
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 

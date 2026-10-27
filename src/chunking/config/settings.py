@@ -2,7 +2,7 @@
 
 # Chunking parameters (features 023 and 025): the defaults of a run; POST /chunking/runs can ask for others
 # ("parameters"). All of them enter ChunkingParameters.fingerprint, so changing any reprocesses.
-STRATEGY = "hybrid"  # hybrid, hierarchical, section, page, fixed or semantic (ChunkingStrategy)
+STRATEGY = "hybrid"  # hybrid, element, section, page, fixed, points or semantic (ChunkingStrategy)
 MAX_TOKENS = 512  # no chunk goes over this size, counted with TOKENIZER
 MAX_TOKENS_RANGE = (16, 8192)  # what a run may ask for
 TOKENIZER = "sentence-transformers/all-MiniLM-L6-v2"  # Hugging Face tokenizer (HybridChunker's default)

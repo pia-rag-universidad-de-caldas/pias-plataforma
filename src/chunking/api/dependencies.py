@@ -10,8 +10,8 @@ from chunking.adapters import HttpServiceProbe, HttpSession
 from chunking.config import DATA_PATH, INGESTA_PATH
 from chunking.models import ChunkCatalog, Converter, ExperimentStore, SectionChunker, ServiceProbe
 
-from .experiment_registry import ExperimentRegistry
-from .registry import RunRegistry
+from .experiments import ExperimentRegistry
+from .runs import RunRegistry
 
 
 @dataclass(frozen=True)

@@ -1,9 +1,9 @@
-"""Duplicates by content (Duplicates) and the reason of a repeated upload (Repetitions.reason)."""
+"""Duplicates by content (Duplicates): which file stays, which never group and what a run repeats."""
 
 from dataclasses import replace
 
-from ingesta.domain import Duplicates, Repetitions
-from ingesta.models import FileRecord, Reason
+from ingesta.domain import Duplicates
+from ingesta.models import FileRecord
 
 BASE = FileRecord(
     origen="2024/01/Semana_01/020055/a.pdf",
@@ -46,28 +46,3 @@ def test_new_in_run_points_to_the_file_processed_first() -> None:
     groups = Duplicates.group([before, now_a])
     [found] = Duplicates.new_in_run(groups, ["a.pdf"])
     assert (found.new, found.previous) == ("v/a.pdf", "v/before.pdf")
-
-
-def test_the_first_reason_that_holds_wins() -> None:
-    other = replace(BASE, origen="b.pdf")
-    assert Repetitions.reason(BASE, other) is Reason.EXACT_COPY
-    no_piaa = replace(other, sha256="h9", nombre="SIN_PIAA.pdf")
-    assert Repetitions.reason(BASE, no_piaa) is Reason.NO_PIAA
-    assert Repetitions.reason(BASE, replace(other, sha256="h9", tipo="docx")) is Reason.OTHER_FORMAT
-    prefixed = replace(other, sha256="h9", nombre="2025-01-28-16.16.41.000000_A.PDF")
-    assert Repetitions.reason(BASE, prefixed) is Reason.SAME_NAME
-    assert Repetitions.reason(BASE, replace(other, sha256="h9", nombre="z.pdf")) is Reason.OTHER_NAME
-
-
-def test_an_empty_previous_upload_is_never_an_exact_copy() -> None:
-    empty = replace(BASE, bytes=0)
-    assert Repetitions.reason(empty, replace(BASE, origen="b.pdf", bytes=0)) is not Reason.EXACT_COPY
-
-
-def test_repeated_codes_skip_the_unassigned_one() -> None:
-    a = replace(BASE, origen="a.pdf", codigo="000000")
-    b = replace(BASE, origen="b.pdf", codigo="000000", modificado="2024-02-01T00:00:00")
-    c = replace(BASE, origen="c.pdf", modificado="2024-02-01T00:00:00")
-    [repeated] = Repetitions.group([a, b, BASE, c])
-    assert (repeated.code, [u.record.origen for u in repeated.uploads]) == ("020055", [BASE.origen, "c.pdf"])
-    assert repeated.uploads[1].seconds == 31 * 86400

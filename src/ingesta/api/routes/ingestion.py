@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from ingesta.adapters import LocalFileAdapter, SQLORMAdapter, open_source, overlaps_ingest
 from ingesta.api.dependencies import Settings
-from ingesta.api.ingestions import IngestionRegistry, work
+from ingesta.api.ingestion_registry import IngestionRegistry, work
 from ingesta.api.schemas import Error, IngestionRun, IngestionSimulation, NewIngestion, PlannedCopy
 from ingesta.domain import Ingestion, Naming
 from ingesta.models import MemoryStoreError, OrganizationPlan, SourceCheck, SourceKind, SourceUnavailable

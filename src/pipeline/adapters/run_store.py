@@ -16,7 +16,7 @@ import httpx
 from pipeline.config import GRAPH_PAGE_SIZE
 from pipeline.models import PipelineRun, RejectedError, RunStore, Template, UnavailableError
 
-from .http import BaseHttpClient, Json, segment
+from .http import BaseHttpClient, Json, errors, segment
 from .mappers import (
     event_id,
     event_properties,
@@ -45,7 +45,7 @@ def _link(type: str, source: dict[str, str], target: dict[str, str]) -> dict[str
 
 class GraphRunStore(BaseHttpClient, RunStore):
     def __init__(self, client: httpx.Client, path: str) -> None:
-        super().__init__(client, path, "data")
+        super().__init__(client, path, errors("data"))
 
     def _nodes(self, label: str) -> Iterator[tuple[str, Mapping[str, Json]]]:
         """(id, properties) of every node of the label, a page at a time."""

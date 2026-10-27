@@ -1,9 +1,8 @@
 """FastAPI application factory for the pipeline (mounted by server at /pipeline)."""
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException
+from fastapi import FastAPI
 
+from common.api import error_handlers
 from pipeline.adapters import HttpModules, HttpNotifier
 from pipeline.models import (
     ActionError,
@@ -17,13 +16,13 @@ from pipeline.models import (
     UnavailableError,
 )
 
-from .actors import ActorRegistry
+from .actor_registry import ActorRegistry
 from .app_info import VERSION
 from .dependencies import ApiSettings
 from .executor import Executor
 from .routes import ROUTERS
 
-_STATUS: dict[type[PipelineError], int] = {
+_STATUS: dict[type[Exception], int] = {
     InvalidTemplate: 422,
     InvalidRequest: 422,
     ActionError: 422,
@@ -32,16 +31,6 @@ _STATUS: dict[type[PipelineError], int] = {
     UnavailableError: 503,
     RejectedError: 502,
 }
-
-
-async def _http_error(_: Request, error: Exception) -> JSONResponse:
-    assert isinstance(error, HTTPException)
-    return JSONResponse(status_code=error.status_code, content={"detail": error.detail}, headers=error.headers)
-
-
-async def _pipeline_error(_: Request, error: Exception) -> JSONResponse:
-    code = next((c for kind, c in _STATUS.items() if isinstance(error, kind)), 500)
-    return JSONResponse(status_code=code, content={"detail": str(error)})
 
 
 def create_app(settings: ApiSettings) -> FastAPI:
@@ -68,8 +57,7 @@ def create_app(settings: ApiSettings) -> FastAPI:
     app.state.store = session.store
     app.state.actors = actors
     app.state.executor = Executor(session.store, session.modules, HttpNotifier(), actors, answer_route)
-    app.add_exception_handler(HTTPException, _http_error)
-    app.add_exception_handler(PipelineError, _pipeline_error)
+    error_handlers(app, {**_STATUS, PipelineError: 500})  # each error its code; any other one of the pipeline, 500
     for router in ROUTERS:
         app.include_router(router)
     return app

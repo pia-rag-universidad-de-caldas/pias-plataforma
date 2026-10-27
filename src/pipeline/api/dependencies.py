@@ -8,7 +8,7 @@ from fastapi import Depends, Request
 from pipeline.config import CHUNKING_PATH, DATA_PATH, INGESTA_PATH
 from pipeline.models import RunStore
 
-from .actors import ActorRegistry
+from .actor_registry import ActorRegistry
 from .executor import Executor
 
 PIPELINE_PATH = "/pipeline"

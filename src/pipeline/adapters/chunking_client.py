@@ -24,7 +24,7 @@ from pipeline.models import (
     UnavailableError,
 )
 
-from .http import CONFLICT, BaseHttpClient, segment
+from .http import CONFLICT, BaseHttpClient, errors, segment
 
 RUNNING = "running"
 
@@ -38,7 +38,7 @@ class ChunkingClient(BaseHttpClient, ChunkingPort):
         clock: Callable[[], float] = time.monotonic,
         timeout: float = EXPERIMENT_TIMEOUT,
     ) -> None:
-        super().__init__(client, path, "chunking")
+        super().__init__(client, path, errors("chunking"))
         self._sleep = sleep
         self._clock = clock
         self._timeout = timeout

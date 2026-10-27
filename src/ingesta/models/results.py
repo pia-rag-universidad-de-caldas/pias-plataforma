@@ -1,4 +1,4 @@
-"""What an `organize` operation returns so the CLI can report it."""
+"""What an ingestion returns so its caller can report it."""
 
 from dataclasses import dataclass, field
 

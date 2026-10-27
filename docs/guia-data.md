@@ -64,7 +64,7 @@ models/piaa.py (Label) ─► schema/piaa_schema.py (sus relaciones) ─► ¿co
 2. **Relaciones:** una etiqueta sin relaciones queda suelta. Seguir el flujo siguiente para conectarla.
 3. **Docstring del esquema** (`schema/piaa_schema.py`): actualizar el dibujo del grafo.
 4. **Si otro módulo escribe esa etiqueta:** ver [Hacer que chunking escriba lo nuevo](#hacer-que-chunking-escriba-lo-nuevo).
-5. **Si la etiqueta se borra cuando se reprocesa su padre**, ver [Reglas del grafo](#reglas-del-grafo) (`_COMPOSITION`).
+5. **Si la etiqueta se borra cuando se reprocesa su padre**, ver [Reglas del grafo](#reglas-del-grafo) (`COMPOSITION`).
 
 ## Flujo: agregar una relación
 
@@ -86,15 +86,17 @@ Las reglas que no son "qué existe" viven en `repository/piaa_repository.py`:
 
 | Regla | Dónde | Qué decide |
 |---|---|---|
-| **Composición** | `_COMPOSITION` | qué relaciones se siguen al borrar los descendientes de un nodo con `replace_from` en `POST /data/batch`, es decir, qué se considera "parte de" un nodo |
-| **Modos de escritura** | `NodeMode` (`models/piaa.py`) y `_merge_nodes` | `replace`: las propiedades pasan a ser las enviadas. `ensure`: se crea si no existe, sin tocar lo que haya. `merge`: pone las enviadas y conserva las demás. |
-| **Validación de un lote** | `write_batch` | antes de escribir: relaciones fuera del esquema, nodos o relaciones repetidos, ids vacíos y extremos inexistentes. Cualquiera da 422 y no se escribe nada. |
+| **Composición** | `COMPOSITION` (`schema/piaa_schema.py`) | qué relaciones se siguen al borrar los descendientes de un nodo con `replace_from` en `POST /data/batch`, es decir, qué se considera "parte de" un nodo |
+| **Modos de escritura** | `NodeMode` (`models/piaa.py`) y `GraphBatchWriter._merge_nodes` (`repository/batch_writer.py`) | `replace`: las propiedades pasan a ser las enviadas. `ensure`: se crea si no existe, sin tocar lo que haya. `merge`: pone las enviadas y conserva las demás. |
+| **Validación de un lote** | `batch_problems` (`schema/batch_rules.py`) y `GraphBatchWriter.write` (extremos inexistentes) | antes de escribir: relaciones fuera del esquema, nodos o relaciones repetidos, ids vacíos y extremos inexistentes. Cualquiera da 422 y no se escribe nada. |
 | **Propiedades permitidas** | `PropertyValue` (`models/piaa.py`) | valores simples o listas homogéneas. Un mapa da 422 (se guarda como texto JSON). |
 
 ### Cambiar la composición (qué se borra al reprocesar)
 
-`_COMPOSITION` lista los tipos que significan "es parte de": `ES`, `TIENE_SECCION`, `TIENE_FRAGMENTO`, `TIENE`,
-`GENERA`, `EXP_GENERA`, `EXP_TIENE_CHUNK` y `EXP_TIENE_PUNTUACION`. Antes de sumar o quitar uno, comprobar dos cosas:
+`COMPOSITION` (`schema/piaa_schema.py`, junto a la definición de cada relación) lista los tipos que significan "es
+parte de": `ES`, `TIENE_SECCION`, `TIENE_FRAGMENTO`, `TIENE`, `GENERA`, `EXP_GENERA`, `EXP_TIENE_CHUNK`,
+`EXP_TIENE_PUNTUACION`, `PIPE_TIENE_ITERACION` y `PIPE_TIENE_EVENTO`. Sus tests: `tests/data/schema/test_batch_rules.py`
+y `tests/data/api/test_batch.py` (que `replace_from` nunca siga una relación compartida). Antes de sumar o quitar uno, comprobar dos cosas:
 
 - **No borra nodos compartidos.** Por eso `DE_TIPO` o `INCUMPLE` no están (borrarían el catálogo de `ANTIPATRON` y
   `NORMA`), ni `EXP_USA` (un `EXP_DOCUMENTO` lo usan varios experimentos).
@@ -127,8 +129,8 @@ escribir.
    `data`.
 2. `chunking/models/stored.py`: un `TypedDict` con las propiedades del nodo o de la relación nueva (o la clave nueva en
    el que ya existe). Es la forma guardada que comparten quien escribe y quien lee.
-3. El dominio de chunking que arma el lote (`domain/hierarchy.py` para producción, `domain/experiment_graph.py` para
-   experimentos) crea los `GraphNode` y `GraphLink` nuevos con ese `TypedDict` como propiedades y el modo que
+3. El dominio de chunking que arma el lote (`domain/production/hierarchy.py` para producción, `domain/experiments/graph.py`
+   para experimentos) crea los `GraphNode` y `GraphLink` nuevos con ese `TypedDict` como propiedades y el modo que
    corresponda.
 4. Si chunking también lo **lee**, el mapper en `adapters/data/` (`mappers.py` o `experiment_mappers.py`) lo lee con
    `stored(raw, TuTipo)` e indexando (`p["clave"]`, no `p.get`: así mypy revisa la clave) y convierte las propiedades
@@ -147,7 +149,7 @@ Contra el Neo4j de prueba:
 - `http/data/nodes.http`, `relationships.http` y `batch.http`, que arman el grafo de prueba, prueban los errores y
   limpian. Se pueden correr de nuevo después del cambio para comprobar que no se rompió nada.
 - Una petición que use la relación al revés debe dar 422.
-- Si se tocó `_COMPOSITION`: un `replace_from` que borre lo esperado y nada más. Revisar los nodos compartidos.
+- Si se tocó `COMPOSITION`: un `replace_from` que borre lo esperado y nada más. Revisar los nodos compartidos.
 - Si chunking lo escribe: `http/connections/chunking-data.http` o `experiment-run.http`.
 - Al terminar, apagar el contenedor: `docker stop neo4j-prueba`.
 

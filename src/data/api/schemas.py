@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+from common.api import Error
 from data.models import (
     BatchNode,
     Label,
@@ -14,11 +15,6 @@ from data.models import (
 )
 
 NEO4J_DOWN = "Neo4j is not answering or rejected the query"
-
-
-@dataclass(frozen=True)
-class Error:
-    detail: str
 
 
 def error(description: str) -> dict[str, object]:

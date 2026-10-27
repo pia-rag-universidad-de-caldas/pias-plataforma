@@ -1,0 +1,117 @@
+# Pipeline · corridas (feature 028): lanzar la `piaa`, contestar como lab / lab2 / embeber / modelscenter, cancelar.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Docling (uv sync --extra chunk), Neo4j y la memoria de ingesta. Usa respuestas anteriores (# @name).
+# Oficializar escribe JSON/SECCION/FRAGMENTOS de producción para esos documentos (los reemplaza). Docs: /pipeline/docs
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### runs · simulate: el lote que tomaría la selección (200; no guarda nada)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]}, "simulate": true}
+
+### runs · la `piaa` sobre la página 1 (de 2) de PDF, conversión por títulos de nivel 1 (202)
+# @name run
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "name": "prueba-pagina-1",
+  "files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]},
+  "params": {"conversion": {"conversion": {"heading_level": 1}}}
+}
+
+### runs · estado, etapa actual, lote, iteraciones (repetir hasta `waiting`)
+GET {{pipeline}}/runs/{{run.response.body.run.id}}
+
+### inbox · lo que espera a lab: la corrida, la iteración y el experimento a mirar en chunking
+# @name inbox
+GET {{pipeline}}/inbox?actor=lab
+
+### chunking · lab mira el JSON de la iteración
+GET http://127.0.0.1:8000/chunking/experiments/{{inbox.response.body.$[0].experiment}}/documents
+
+### runs · lab puntúa y repite con títulos de nivel 2 (la puntuación queda en el experimento)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/conversion/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab", "score": {"author": "lab", "criteria": {"coherencia": 3}, "comment": "probar nivel 2"},
+ "next": {"conversion": {"heading_level": 2}}}
+
+### runs · lab aprueba la última iteración (o "iteration": 1): se oficializa el JSON y sigue lab2
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/conversion/decision
+Content-Type: application/json
+
+{"decision": "approve", "actor": "lab"}
+
+### runs · lab2 repite con otro plan: objetivos por puntos, el resto hybrid de 256
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/chunking/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab2",
+ "next": {"plan": {"rules": [{"match": {"titles": ["objetivo"]}, "chunking": {"strategy": "points"}}],
+                   "default": {"strategy": "hybrid", "max_tokens": 256}}}}
+
+### runs · lab2 deja constancia de que llamó a embeber para evaluar (no cambia el estado)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/events
+Content-Type: application/json
+
+{"actor": "lab2", "kind": "call_embeber", "detail": {"engine": "local"}}
+
+### runs · lab2 aprueba: se oficializan los chunks y espera embeber
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/chunking/decision
+Content-Type: application/json
+
+{"decision": "approve", "actor": "lab2"}
+
+### runs · otro actor contesta por embeber (409)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/embeber/complete
+Content-Type: application/json
+
+{"actor": "lab", "result": 1}
+
+### runs · embeber terminó
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/embeber/complete
+Content-Type: application/json
+
+{"actor": "embeber", "result": {"engine": "local", "vectors": 40}}
+
+### runs · modelscenter terminó: la corrida queda `done`
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/revisar/complete
+Content-Type: application/json
+
+{"actor": "modelscenter", "result": "ok"}
+
+### runs · las terminadas
+GET {{pipeline}}/runs?status=done
+
+### runs · cancelar (409 si ya terminó) / reanudar una fallida o interrumpida
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/cancel
+
+###
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/resume
+
+### runs · malformadas (422): dos formas de elegir archivos, parámetros de una etapa que no existe
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"files": {"all": true, "sha256s": ["x"]}}
+
+###
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"files": {"all": true}, "params": {"no-existe": {}}}
+
+### actors · registrar el aviso de lab (POST con lo mismo que /inbox cuando una etapa lo espera)
+PUT {{pipeline}}/actors/lab
+Content-Type: application/json
+
+{"callback_url": "http://127.0.0.1:9000/lab/hook"}
+
+###
+GET {{pipeline}}/actors
+
+### health · si ingesta, chunking y data responden
+GET {{pipeline}}/health

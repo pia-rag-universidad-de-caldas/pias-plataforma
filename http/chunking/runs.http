@@ -1,0 +1,113 @@
+# Chunking · runs (feature 023): POST /chunking/runs starts a run in the background (its own thread); GET follows it.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Servidor único con Docling (uv sync --extra chunk) y Neo4j: NEO4J_PASSWORD=... uv run prueba-chunking serve.
+# Sin Docling, POST /runs responde 503. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# OJO: salvo "simulate", estas peticiones escriben en el grafo real (PIAA → JSON → SECCION → FRAGMENTOS).
+
+@chunking = http://127.0.0.1:8000/chunking
+@ingesta = http://127.0.0.1:8000/ingesta
+
+### runs · simulate: only counts what would be processed (pending/skipped); converts and writes nothing
+# @name simulated
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"simulate": true, "limit": 3}
+
+### runs · its result (status "finished" in a second or two)
+GET {{chunking}}/runs/{{simulated.response.body.$.id}}
+### runs · a small real run: the first 3 pending chunkable files (202 at once; status "running")
+# @name small
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"limit": 3}
+
+### runs · while it runs, another one is refused (409)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"limit": 1}
+
+### runs · status and counters (pending, chunked, chunks, skipped, errors) and failures; repeat until "finished"
+GET {{chunking}}/runs/0a39b32caa06
+
+### runs · the same again: nothing is reprocessed (the 3 count as skipped; limit takes the next 3 pending)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"limit": 3, "simulate": true}
+
+### runs · with filters (those of GET /ingesta/data): only PDF of 2024, at most 2
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"types": ["pdf"], "year": 2024, "limit": 2}
+
+### runs · other parameters for the pending files: every parameter enters the fingerprint, so documents chunked
+### with other values are pending again (and replaced, never duplicated). Missing parameters take their config default
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"limit": 3, "parameters": {"max_tokens": 256}}
+
+### runs · re-chunk specific documents by sha256 with other parameters (the filters are ignored; processed even if
+### already chunked with the same parameters; repeated hashes count once; an unknown hash fails only that item)
+# @name page
+GET {{ingesta}}/data?page=1&per_page=2
+
+###
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{
+  "sha256s": [
+    "{{page.response.body.$.archivos[0].sha256}}",
+    "{{page.response.body.$.archivos[1].sha256}}",
+    "{{page.response.body.$.archivos[0].sha256}}",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  ],
+  "parameters": {
+    "tokenizer": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "max_tokens": 128,
+    "merge_peers": false,
+    "repeat_table_header": false,
+    "table_structure": true,
+    "table_mode": "fast"
+  }
+}
+
+### runs · the parameters used are stored on the document: see them in GET /chunking/documents/{sha256}
+GET {{chunking}}/documents/{{page.response.body.$.archivos[0].sha256}}
+
+### runs · repeat_table_header=true may give a table chunk over max_tokens (docling-core counts the table without its
+### headings): that document ends as an error with the reason, never stored with an oversized chunk
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{page.response.body.$.archivos[0].sha256}}"], "parameters": {"max_tokens": 128, "repeat_table_header": true}}
+
+### runs · retry the documents in error (with the same parameters they are skipped otherwise)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"retry_errors": true, "limit": 10}
+
+### runs · validation (422): limit < 1, month out of range, a sha256 that isn't 64 lowercase hex, max_tokens < 16,
+### unknown table_mode
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"limit": 0, "month": 13, "sha256s": ["abc"], "parameters": {"max_tokens": 5, "table_mode": "slow"}}
+
+### runs · a tokenizer not listed in config TOKENIZERS (422: only those are ever downloaded)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"parameters": {"tokenizer": "bert-base-uncased"}}
+
+### runs · the runs of this server session, newest first
+GET {{chunking}}/runs
+
+### runs · unknown id (404)
+GET {{chunking}}/runs/nope

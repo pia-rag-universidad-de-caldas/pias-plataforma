@@ -1,0 +1,31 @@
+spec/**
+.github/**
+CLAUDE.md
+
+# Entornos y cachés de herramientas
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# Modelos descargados (tokenizadores, embeddings) y otras cachés del proyecto
+.cache/
+
+# Datos: documentos originales, ingesta (incluye la memoria .memoria.sqlite3) y los zip
+data/base/
+data/ingesta/
+data/zip/
+
+# Respaldos de la memoria, copias parciales y logs
+*.sqlite3
+*.parcial
+*.log
+
+# Secretos (NEO4J_PASSWORD...)
+.env
+.env.*

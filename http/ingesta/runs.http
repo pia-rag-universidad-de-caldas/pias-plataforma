@@ -1,0 +1,54 @@
+# Ingesta · correr la ingesta desde la API (feature 030): revisar el origen, simular y copiar.
+# El origen es SIEMPRE data/base/ (la carpeta base del servidor): la API no acepta otra ruta. Si data/base/ no existe,
+# está vacía o no tiene la estructura esperada, /source lo dice y /runs responde 422 con la revisión.
+# El origen NUNCA se mueve ni se borra: la API solo copia a ingesta/, registra en la memoria y reclasifica.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una). Docs: /ingesta/docs
+# Para probar sin tocar la memoria real: serve --memory <copia> (y --ingest <carpeta temporal> si va a copiar).
+
+@base = http://127.0.0.1:8000/ingesta
+
+### source · revisar la carpeta por defecto (data/base/): si se encontró, qué tiene, cuántos nuevos y sus problemas
+GET {{base}}/source
+
+### source · base SQL externa: todavía no existe (501)
+GET {{base}}/source?kind=sql
+
+### runs · simular: la revisión, cuántos copiaría, los primeros destinos y cuántos se reubicarían (200; no toca nada)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"simulate": true}
+
+### runs · no se puede pedir otra carpeta: siempre es data/base/ (422 por clave desconocida)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"source": {"kind": "folder", "path": "/otra/carpeta"}}
+
+### runs · no hay "move": la API siempre copia (422 por clave desconocida)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"move": true}
+
+### runs · correr la ingesta de data/base/ (202; en segundo plano)
+# @name run
+POST {{base}}/runs
+Content-Type: application/json
+
+{"source": {"kind": "folder"}}
+
+### runs · otra mientras corre (409)
+POST {{base}}/runs
+Content-Type: application/json
+
+{}
+
+### runs · estado, progreso (copiados/total), resultado y errores por archivo: repetir hasta "terminada"
+GET {{base}}/runs/{{run.response.body.$.id}}
+
+### runs · las de esta sesión del servidor, la más nueva primero
+GET {{base}}/runs
+
+### runs · id que no existe (404)
+GET {{base}}/runs/nope

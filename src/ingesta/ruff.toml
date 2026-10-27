@@ -1,0 +1,9 @@
+# Ruff for src/ingesta/ (feature 020): the root pyproject.toml plus the ban on importing the other modules.
+# Modules only talk to each other over HTTP; only src/server/ (composition root) imports them all.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.extend-banned-api]
+"data".msg = "ingesta must not import data: modules talk over HTTP (feature 020); only server/ composes them"
+"chunking".msg = "ingesta must not import chunking: modules talk over HTTP (feature 020); only server/ composes them"
+"server".msg = "ingesta must not import server: modules talk over HTTP (feature 020); only server/ composes them"
+"pipeline".msg = "ingesta must not import pipeline: modules talk over HTTP (feature 020); only server/ composes them"

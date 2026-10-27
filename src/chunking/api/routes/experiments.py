@@ -1,0 +1,403 @@
+"""Chunking experiments (feature 025): POST/GET /experiments, GET /experiments/compare, GET/DELETE /experiments/{id},
+GET /experiments/{id}/documents[/{sha256}[/chunks]]; POST /experiments/{id}/promote (feature 028, to the official
+graph). The record lives in the graph (experiment labels), read and
+written through data over HTTP; the production graph is only touched by promote."""
+
+import json
+from typing import Annotated
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from pydantic import JsonValue
+
+from chunking.adapters import HttpSession
+from chunking.adapters.docling_converter import MISSING
+from chunking.adapters.strategies import MISSING as NO_TRANSFORMERS
+from chunking.api.dependencies import Chunker, DocumentConverter, Experiments, Registry, Settings, Store
+from chunking.api.experiment_registry import launch
+from chunking.api.experiment_schemas import (
+    ChunkView,
+    ComparedView,
+    ConversionBody,
+    DocumentView,
+    ExperimentStarted,
+    ExperimentSummary,
+    ExperimentView,
+    FileProblem,
+    FilesBody,
+    JsonFilesBody,
+    NewExperiment,
+    PagesBody,
+    PlanBody,
+    PreviewFile,
+    PromotionFailure,
+    PromotionView,
+    SectionView,
+    StrategyBody,
+)
+from chunking.api.schemas import Error
+from chunking.config import CHUNK_PAGE_SIZE
+from chunking.domain import (
+    ExperimentGraph,
+    ExperimentRunner,
+    InvalidParameters,
+    Parameters,
+    Planner,
+    Promotion,
+    Scoring,
+)
+from chunking.domain.experiment_runner import now
+from chunking.models import (
+    ConversionParameters,
+    DocumentFilter,
+    ExperimentDocument,
+    ExperimentRecord,
+    ExperimentRequest,
+    ExperimentStatus,
+    ExperimentStore,
+    FileSelection,
+    Inclusion,
+    JsonSelection,
+    Match,
+    PageRange,
+    Plan,
+    PositionRange,
+    RequestedStrategy,
+    Rule,
+    RunStatus,
+    StrategyParameters,
+    rule_name,
+)
+
+router = APIRouter(prefix="/experiments", tags=["experiments"])
+
+type _Responses = dict[int | str, dict[str, object]]
+
+_NOT_FOUND: _Responses = {404: {"model": Error, "description": "no experiment (or document) with that id"}}
+_DOWN: _Responses = {503: {"model": Error, "description": "ingesta or data is not answering"}}
+
+
+def _unprocessable(message: str) -> HTTPException:
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, message)
+
+
+def _strategy(body: StrategyBody, where: str) -> StrategyParameters:
+    try:
+        return Parameters.resolve(
+            RequestedStrategy(
+                strategy=body.strategy,
+                tokenizer=body.tokenizer,
+                max_tokens=body.max_tokens,
+                merge_peers=body.merge_peers,
+                overlap_tokens=body.overlap_tokens,
+                embedding_model=body.embedding_model,
+                similarity_threshold=body.similarity_threshold,
+            )
+        )
+    except InvalidParameters as error:
+        raise _unprocessable(f"{where}: {error}") from error
+
+
+def _pages(body: PagesBody | None, per_page: int | None, where: str) -> PageRange | None:
+    if body is None:
+        if per_page is not None:
+            raise _unprocessable(f"{where}: per_page goes with pages")
+        return None
+    if body.first > body.last:
+        raise _unprocessable(f"{where}.pages: from ({body.first}) is after to ({body.last})")
+    if per_page is None:
+        raise _unprocessable(f"{where}: pages need a per_page")
+    return PageRange(body.first, body.last)
+
+
+def _official(body: JsonFilesBody) -> JsonSelection:
+    pages = _pages(body.pages, body.per_page, "files.from_json")
+    if sum([body.all, pages is not None, bool(body.sha256s)]) != 1:
+        raise _unprocessable("files.from_json: give exactly one of all, pages with per_page or sha256s")
+    return JsonSelection(body.all, pages, body.per_page, body.sha256s)
+
+
+def _files(files: FilesBody) -> FileSelection:
+    """The files asked for, checked: exactly one form; 422 with the problem."""
+    filters = bool(files.types or files.year or files.month or files.week or files.code)
+    pages = _pages(files.pages, files.per_page, "files")
+    ingesta = filters or files.limit is not None or files.all or pages is not None
+    forms = [bool(files.sha256s), bool(files.from_experiment), files.from_json is not None, ingesta]
+    if sum(forms) != 1:
+        raise _unprocessable(
+            "files: give exactly one of sha256s, from_experiment, from_json or ingesta's filters with limit, all or "
+            "pages"
+        )
+    if ingesta and sum([files.limit is not None, files.all, pages is not None]) != 1:
+        raise _unprocessable("files: ingesta's filters need exactly one of limit, all or pages with per_page")
+    return FileSelection(
+        sha256s=files.sha256s,
+        filter=DocumentFilter(files.types, files.year, files.month, files.week, files.code) if ingesta else None,
+        limit=files.limit,
+        from_experiment=files.from_experiment,
+        all=files.all,
+        pages=pages,
+        per_page=files.per_page,
+        from_json=_official(files.from_json) if files.from_json is not None else None,
+    )
+
+
+def _plan(body: PlanBody) -> Plan:
+    rules: list[Rule] = []
+    for i, rule in enumerate(body.rules):
+        position = rule.match.position
+        match = Match(rule.match.titles, PositionRange(position.start, position.end) if position else None)
+        try:
+            Planner.check(match)
+        except InvalidParameters as error:
+            raise _unprocessable(f"plan.rules[{i}].match: {error}") from error
+        rules.append(Rule(match, _strategy(rule.chunking, f"plan.rules[{i}].chunking")))
+    return Plan(rules, _strategy(body.default, "plan.default"))
+
+
+def _request(new: NewExperiment, docling_version: str) -> ExperimentRequest:
+    """The request with every parameter resolved and checked; 422 with the first problem."""
+    files = _files(new.files)
+    if files.from_json is not None:
+        if new.plan is None:
+            raise _unprocessable("files.from_json: official JSON is already converted, so it needs a plan")
+        if new.conversion is not None:
+            raise _unprocessable("files.from_json: each JSON keeps the conversion it was promoted with")
+    conversion = new.conversion or ConversionBody()
+    include = conversion.include
+    return ExperimentRequest(
+        name=new.name,
+        description=new.description,
+        files=files,
+        conversion=ConversionParameters(
+            heading_level=conversion.heading_level,
+            numbered_titles=conversion.numbered_titles,
+            table_structure=conversion.table_structure,
+            table_mode=conversion.table_mode,
+            include=Inclusion(
+                include.tables, include.lists, include.page_headers, include.page_footers, include.pictures
+            ),
+            docling_version=docling_version,
+        ),
+        plan=_plan(new.plan) if new.plan is not None else None,
+    )
+
+
+def _status(record: ExperimentRecord, active: str | None) -> ExperimentStatus:
+    if record.status == ExperimentStatus.RUNNING and record.id != active:
+        return ExperimentStatus.INTERRUPTED  # the server stopped while it ran
+    return record.status
+
+
+def _record(store: ExperimentStore, id: str) -> ExperimentRecord:
+    record = store.experiment(id)
+    if record is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"there is no experiment with id {id!r}")
+    return record
+
+
+def _loads(text: str | None) -> JsonValue:
+    if text is None:
+        return None
+    loaded: JsonValue = json.loads(text)
+    return loaded
+
+
+@router.post(
+    "",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        200: {"model": ExperimentStarted, "description": "simulate: the files and the conversions it would reuse"},
+        404: {"model": Error, "description": "from_experiment doesn't exist"},
+        409: {"model": Error, "description": "an experiment or a production run is running"},
+        422: {"model": Error, "description": "malformed files, conversion or plan"},
+        503: {"model": Error, "description": "Docling missing (something to convert), or ingesta/data down"},
+    },
+)
+def start_experiment(
+    new: NewExperiment,
+    response: Response,
+    settings: Settings,
+    store: Store,
+    experiments: Experiments,
+    runs: Registry,
+    converter: DocumentConverter,
+    chunker: Chunker,
+) -> ExperimentStarted:
+    """Validates, resolves the files, stores the EXPERIMENTO and runs it in the background (202). With `simulate`,
+    only answers which files would enter and which conversions would be reused (200, nothing stored)."""
+    request = _request(new, converter.version() or "")
+    if request.files.from_experiment:
+        _record(store, request.files.from_experiment)
+    id = uuid4().hex[:12]
+    busy = any(r.status == RunStatus.RUNNING for r in runs.all())
+    if not new.simulate and (busy or not experiments.start(id)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "an experiment or a production run is still running")
+    try:
+        with HttpSession(settings.self_url, settings.ingesta_path, settings.data_path) as session:
+            resolution = ExperimentRunner.resolve(session.source, store, request, CHUNK_PAGE_SIZE)
+        to_convert = [f for f in resolution.files if not f.reused]
+        if not new.simulate:
+            if to_convert and not converter.available():
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, MISSING)
+            if request.plan is not None and not chunker.available():
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, NO_TRANSFORMERS)
+            store.save(ExperimentGraph.experiment(id, request, len(resolution.files), now()))
+    except BaseException:
+        experiments.done(id)
+        raise
+    answer = ExperimentStarted(
+        id=None if new.simulate else id,
+        status="simulated" if new.simulate else ExperimentStatus.RUNNING,
+        files=[
+            PreviewFile(f.document.sha256 or "", f.document.origin, f.document.name, f.reused) for f in resolution.files
+        ],
+        to_convert=len(to_convert),
+        reused=len(resolution.files) - len(to_convert),
+        failures=[FileProblem(f.error, f.origin, f.sha256) for f in resolution.failures],
+    )
+    if new.simulate:
+        response.status_code = status.HTTP_200_OK
+    else:
+        launch(
+            experiments,
+            id,
+            settings.self_url,
+            settings.ingesta_path,
+            settings.data_path,
+            converter,
+            chunker,
+            request,
+            resolution,
+        )
+    return answer
+
+
+@router.get("", responses=_DOWN)
+def list_experiments(store: Store, experiments: Experiments) -> list[ExperimentSummary]:
+    """Every experiment in the graph (not only this session's), newest first."""
+    active = experiments.active
+    return [
+        ExperimentSummary(r.id, r.name, r.description, _status(r, active), r.created, r.finished, r.progress)
+        for r in store.experiments()
+    ]
+
+
+@router.get(
+    "/compare",
+    responses=_NOT_FOUND | _DOWN | {422: {"model": Error, "description": "fewer than two ids"}},
+)
+def compare_experiments(
+    store: Store, ids: Annotated[list[str], Query(description="two or more: ?ids=a&ids=b")]
+) -> list[ComparedView]:
+    """Side by side: each experiment's request (conversion and plan), scores with their averages and the key numbers
+    of its results."""
+    unique = list(dict.fromkeys(ids))
+    if len(unique) < 2:
+        raise _unprocessable("compare needs at least two different ids")
+    compared = [Scoring.compare(_record(store, id), store.scores(id)) for id in unique]
+    return [
+        ComparedView(
+            c.id, c.name, c.status, _loads(c.conversion_json), _loads(c.plan_json), c.scores, c.summary, c.results
+        )
+        for c in compared
+    ]
+
+
+@router.get("/{id}", responses=_NOT_FOUND | _DOWN)
+def read_experiment(store: Store, experiments: Experiments, id: str) -> ExperimentView:
+    r = _record(store, id)
+    return ExperimentView(
+        r.id,
+        r.name,
+        r.description,
+        _status(r, experiments.active),
+        r.created,
+        r.finished,
+        r.progress,
+        _loads(r.files_json),
+        _loads(r.conversion_json),
+        _loads(r.plan_json),
+        _loads(r.results_json),
+        r.error,
+    )
+
+
+@router.post(
+    "/{id}/promote",
+    responses=_NOT_FOUND | _DOWN | {409: {"model": Error, "description": "the experiment is running or didn't finish"}},
+)
+def promote_experiment(store: Store, experiments: Experiments, id: str) -> PromotionView:
+    """Copies an approved (finished) experiment to the official graph (feature 028). Conversion only: each converted
+    document becomes its official JSON, (:PIAA)-[:ES]->(:JSON {contenido})-[:VIENE_DE]->(:EXP_DOCUMENTO), replacing
+    the one it had. With a plan: its sections and chunks go under the official JSON as SECCION/FRAGMENTOS, replacing
+    the ones it had. A document that can't be promoted is listed in `failed`; the rest are."""
+    record = _record(store, id)
+    if experiments.active == id or record.status != ExperimentStatus.FINISHED:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"the experiment is {_status(record, experiments.active)}")
+    outcome = Promotion.run(store, record, now())
+    failed = [PromotionFailure(f.sha256 or "", f.error) for f in outcome.failed]
+    return PromotionView(outcome.experiment, outcome.kind, outcome.promoted, failed)
+
+
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=_NOT_FOUND | _DOWN | {409: {"model": Error, "description": "it is running"}},
+)
+def delete_experiment(store: Store, experiments: Experiments, id: str) -> None:
+    """Deletes the experiment, its sections, chunks and scores; the EXP_DOCUMENTO (shared conversions) stay."""
+    if experiments.active == id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "the experiment is running")
+    if not store.delete(id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"there is no experiment with id {id!r}")
+
+
+def _document(store: ExperimentStore, id: str, sha256: str) -> ExperimentDocument:
+    _record(store, id)
+    found = next((d for d in store.documents(id) if d.sha256 == sha256), None)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"the experiment {id!r} has no document {sha256!r}")
+    return found
+
+
+@router.get("/{id}/documents", responses=_NOT_FOUND | _DOWN)
+def experiment_documents(store: Store, id: str) -> list[ExperimentDocument]:
+    """The documents of the experiment: whether their conversion was reused, status, sections and chunks."""
+    _record(store, id)
+    return store.documents(id)
+
+
+@router.get("/{id}/documents/{sha256}", responses=_NOT_FOUND | _DOWN)
+def experiment_document(store: Store, id: str, sha256: str) -> DocumentView:
+    """One document: its conversion (parameters and JSON) and how each section was treated (rule, strategy...)."""
+    document = _document(store, id, sha256)
+    sections = [
+        SectionView(
+            s.index,
+            s.title,
+            s.level,
+            s.pages,
+            rule_name(s.rule),
+            s.strategy,
+            _loads(s.parameters_json),
+            s.chunks,
+            s.tokens,
+        )
+        for s in store.sections(id, document)
+    ]
+    conversion = _loads(store.conversion_json(document.conversion_id))
+    return DocumentView(document, conversion, _loads(store.content(document.conversion_id)), sections)
+
+
+@router.get("/{id}/documents/{sha256}/chunks", responses=_NOT_FOUND | _DOWN)
+def experiment_chunks(store: Store, id: str, sha256: str) -> list[ChunkView]:
+    """The chunks of the document in the experiment, by section and in order."""
+    document = _document(store, id, sha256)
+    chunks: list[ChunkView] = []
+    counters: dict[int, int] = {}
+    for section, piece in store.chunks(id, document):
+        index = counters.get(section, 0)
+        counters[section] = index + 1
+        chunks.append(ChunkView(section, index, piece.text, piece.headings, piece.pages, piece.tokens))
+    return chunks

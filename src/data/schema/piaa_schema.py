@@ -1,0 +1,63 @@
+"""WHICH relationships the PIAA graph allows (like ingesta/tables/ for the memory).
+
+    (:CHAT)-[:GENERA]->(:CONSULTA)-[:SOBRE]->(:JSON)-[:TIENE_SECCION]->(:SECCION)-[:TIENE_FRAGMENTO]->(:FRAGMENTOS)
+    (:CONSULTA)-[:RESPONDIDA_CON]->(:FRAGMENTOS)<-[:EN]-(:HALLAZGOS)-[:DE_TIPO]->(:ANTIPATRON)-[:INCUMPLE]->(:NORMA)
+    (:FACULTAD)-[:PERTENECE]->(:PROGRAMA)-[:HACE_PARTE]->(:ASIGNATURA)-[:PERTENECE]->(:PIAA)-[:ES]->(:JSON)
+    (:JSON)-[:TIENE]->(:HALLAZGOS)
+
+Chunking experiments (feature 025), apart from the production graph:
+
+    (:EXPERIMENTO)-[:EXP_USA]->(:EXP_DOCUMENTO)-[:EXP_TIENE_SECCION]->(:EXP_SECCION)-[:EXP_TIENE_CHUNK]->(:EXP_CHUNK)
+    (:EXPERIMENTO)-[:EXP_GENERA]->(:EXP_SECCION)
+    (:EXPERIMENTO)-[:EXP_TIENE_PUNTUACION]->(:EXP_PUNTUACION)
+
+Pipeline (feature 028), and the official JSON promoted from an experiment's conversion:
+
+    (:PIPE_CORRIDA)-[:PIPE_DE]->(:PIPELINE)
+    (:PIPE_CORRIDA)-[:PIPE_TIENE_ITERACION]->(:PIPE_ITERACION)-[:PIPE_USA]->(:EXPERIMENTO)
+    (:PIPE_CORRIDA)-[:PIPE_TIENE_EVENTO]->(:PIPE_EVENTO)
+    (:JSON)-[:VIENE_DE]->(:EXP_DOCUMENTO)
+
+`HACE PARTE` from the original design is written `HACE_PARTE`: a type with a space would need backticks everywhere.
+"""
+
+from data.models import Label, RelationshipDefinition, RelationshipType
+
+_L = Label
+_T = RelationshipType
+
+RELATIONSHIPS: tuple[RelationshipDefinition, ...] = (
+    RelationshipDefinition(_T.GENERA, _L.CHAT, _L.CONSULTA),
+    RelationshipDefinition(_T.SOBRE, _L.CONSULTA, _L.JSON),
+    RelationshipDefinition(_T.TIENE_SECCION, _L.JSON, _L.SECCION),
+    RelationshipDefinition(_T.RESPONDIDA_CON, _L.CONSULTA, _L.FRAGMENTOS),
+    RelationshipDefinition(_T.EN, _L.HALLAZGOS, _L.FRAGMENTOS),
+    RelationshipDefinition(_T.DE_TIPO, _L.HALLAZGOS, _L.ANTIPATRON),
+    RelationshipDefinition(_T.INCUMPLE, _L.ANTIPATRON, _L.NORMA),
+    RelationshipDefinition(_T.TIENE_FRAGMENTO, _L.SECCION, _L.FRAGMENTOS),
+    RelationshipDefinition(_T.PERTENECE, _L.FACULTAD, _L.PROGRAMA),
+    RelationshipDefinition(_T.HACE_PARTE, _L.PROGRAMA, _L.ASIGNATURA),
+    RelationshipDefinition(_T.PERTENECE, _L.ASIGNATURA, _L.PIAA),
+    RelationshipDefinition(_T.ES, _L.PIAA, _L.JSON),
+    RelationshipDefinition(_T.TIENE, _L.JSON, _L.HALLAZGOS),
+    RelationshipDefinition(_T.EXP_USA, _L.EXPERIMENTO, _L.EXP_DOCUMENTO),
+    RelationshipDefinition(_T.EXP_TIENE_SECCION, _L.EXP_DOCUMENTO, _L.EXP_SECCION),
+    RelationshipDefinition(_T.EXP_TIENE_CHUNK, _L.EXP_SECCION, _L.EXP_CHUNK),
+    RelationshipDefinition(_T.EXP_GENERA, _L.EXPERIMENTO, _L.EXP_SECCION),
+    RelationshipDefinition(_T.EXP_TIENE_PUNTUACION, _L.EXPERIMENTO, _L.EXP_PUNTUACION),
+    RelationshipDefinition(_T.PIPE_DE, _L.PIPE_CORRIDA, _L.PIPELINE),
+    RelationshipDefinition(_T.PIPE_TIENE_ITERACION, _L.PIPE_CORRIDA, _L.PIPE_ITERACION),
+    RelationshipDefinition(_T.PIPE_USA, _L.PIPE_ITERACION, _L.EXPERIMENTO),
+    RelationshipDefinition(_T.PIPE_TIENE_EVENTO, _L.PIPE_CORRIDA, _L.PIPE_EVENTO),
+    RelationshipDefinition(_T.VIENE_DE, _L.JSON, _L.EXP_DOCUMENTO),
+)
+
+
+def definition(type: RelationshipType, source: Label, target: Label) -> RelationshipDefinition | None:
+    """The schema relationship with that type and those ends, or None if the schema doesn't allow it."""
+    wanted = RelationshipDefinition(type, source, target)
+    return wanted if wanted in RELATIONSHIPS else None
+
+
+def allowed(type: RelationshipType) -> list[RelationshipDefinition]:
+    return [d for d in RELATIONSHIPS if d.type == type]

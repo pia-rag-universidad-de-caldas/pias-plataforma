@@ -1,0 +1,170 @@
+# Laboratorio a mano (sin pipeline): 3 archivos → 3 conversiones distintas → elegir una → 3 chunkings → otra conversión → chunking.
+# Todo queda en etiquetas EXP_* (no toca el grafo oficial). Ejecutar de arriba hacia abajo; cada GET de estado,
+# repetirlo hasta "finished" antes de seguir. Requiere Docling y Neo4j. Usa respuestas anteriores (# @name).
+
+@chunking = http://127.0.0.1:8000/chunking
+@ingesta = http://127.0.0.1:8000/ingesta
+
+# ── 1. Traer 3 archivos de ingesta ─────────────────────────────────────────────────────────────────────────────────
+
+### 1 · los 3 primeros PDF aptos (de aquí salen los sha256 que se usan en todo el archivo)
+# @name files
+GET {{ingesta}}/data?type=pdf&page=1&per_page=3
+
+# ── 2. Convertir a JSON tres veces, cada vez con otra configuración (3 archivos × 3 = 9 EXP_DOCUMENTO) ─────────────
+# Sin "plan" = solo conversión. Si repites la MISMA configuración no se crean documentos nuevos: se reutilizan.
+
+### 2a · intento A: títulos de nivel 1
+# @name convA
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "conv-A-nivel1",
+  "files": {"sha256s": ["{{files.response.body.$.archivos[0].sha256}}", "{{files.response.body.$.archivos[1].sha256}}", "{{files.response.body.$.archivos[2].sha256}}"]},
+  "conversion": {"heading_level": 1, "table_structure": true, "table_mode": "accurate"}
+}
+
+### 2a · estado (repetir hasta "finished")
+GET {{chunking}}/experiments/{{convA.response.body.$.id}}
+
+### 2a · ver los JSON que salieron (documentos del intento A)
+GET {{chunking}}/experiments/{{convA.response.body.$.id}}/documents
+
+### 2a · uno de ellos en detalle: sus secciones y elementos
+GET {{chunking}}/experiments/{{convA.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}
+
+### 2b · intento B: títulos hasta nivel 2 y numerales romanos como títulos
+# @name convB
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "conv-B-nivel2-romanos",
+  "files": {"from_experiment": "{{convA.response.body.$.id}}"},
+  "conversion": {"heading_level": 2, "numbered_titles": true, "table_structure": true, "table_mode": "accurate"}
+}
+
+### 2b · estado
+GET {{chunking}}/experiments/{{convB.response.body.$.id}}
+
+### 2b · sus JSON
+GET {{chunking}}/experiments/{{convB.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}
+
+### 2c · intento C: tablas en modo rápido y sin listas
+# @name convC
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "conv-C-tablas-rapidas",
+  "files": {"from_experiment": "{{convA.response.body.$.id}}"},
+  "conversion": {"heading_level": 1, "table_structure": true, "table_mode": "fast",
+                 "include": {"tables": true, "lists": false, "page_headers": false, "page_footers": false, "pictures": false}}
+}
+
+### 2c · estado
+GET {{chunking}}/experiments/{{convC.response.body.$.id}}
+
+### 2c · sus JSON
+GET {{chunking}}/experiments/{{convC.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}
+
+### 2 · (opcional) puntuar el intento que más te gustó
+POST {{chunking}}/experiments/{{convB.response.body.$.id}}/scores
+Content-Type: application/json
+
+{"author": "yo", "criteria": {"coherencia": 4, "completitud": 4}, "comment": "los títulos de nivel 2 separan mejor"}
+
+### 2 · comparar los tres intentos
+GET {{chunking}}/experiments/compare?ids={{convA.response.body.$.id}}&ids={{convB.response.body.$.id}}&ids={{convC.response.body.$.id}}
+
+# ── 3. Elegir un intento (aquí el B) y hacerle chunking tres veces ─────────────────────────────────────────────────
+# Para usar SUS JSON: los mismos archivos (from_experiment) y EXACTAMENTE la misma "conversion" que el intento B.
+# Así la conversión se reutiliza (no pasa por Docling: "reused" = 3) y solo cambia el plan de chunking.
+
+### 3a · chunking 1 sobre B: todo hybrid de 512
+# @name chunk1
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "B-chunk1-hybrid512",
+  "files": {"from_experiment": "{{convB.response.body.$.id}}"},
+  "conversion": {"heading_level": 2, "numbered_titles": true, "table_structure": true, "table_mode": "accurate"},
+  "plan": {"default": {"strategy": "hybrid", "max_tokens": 512}}
+}
+
+### 3a · estado (comprobar progress.reused = 3)
+GET {{chunking}}/experiments/{{chunk1.response.body.$.id}}
+
+### 3a · los chunks de un documento
+GET {{chunking}}/experiments/{{chunk1.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}/chunks
+
+### 3b · chunking 2 sobre B: objetivos por puntos, el resto hybrid de 256
+# @name chunk2
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "B-chunk2-puntos",
+  "files": {"from_experiment": "{{convB.response.body.$.id}}"},
+  "conversion": {"heading_level": 2, "numbered_titles": true, "table_structure": true, "table_mode": "accurate"},
+  "plan": {"rules": [{"match": {"titles": ["objetivo", "competencia"]}, "chunking": {"strategy": "points"}}],
+           "default": {"strategy": "hybrid", "max_tokens": 256}}
+}
+
+### 3b · estado
+GET {{chunking}}/experiments/{{chunk2.response.body.$.id}}
+
+### 3b · sus chunks
+GET {{chunking}}/experiments/{{chunk2.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}/chunks
+
+### 3c · chunking 3 sobre B: una sección = un chunk
+# @name chunk3
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "B-chunk3-seccion",
+  "files": {"from_experiment": "{{convB.response.body.$.id}}"},
+  "conversion": {"heading_level": 2, "numbered_titles": true, "table_structure": true, "table_mode": "accurate"},
+  "plan": {"default": {"strategy": "section", "max_tokens": 1024}}
+}
+
+### 3c · estado
+GET {{chunking}}/experiments/{{chunk3.response.body.$.id}}
+
+### 3c · sus chunks
+GET {{chunking}}/experiments/{{chunk3.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}/chunks
+
+### 3 · comparar los tres chunkings
+GET {{chunking}}/experiments/compare?ids={{chunk1.response.body.$.id}}&ids={{chunk2.response.body.$.id}}&ids={{chunk3.response.body.$.id}}
+
+# ── 4. Tomar otro de los intentos de conversión (aquí el C) y hacerle chunking ─────────────────────────────────────
+
+### 4 · chunking sobre C (misma "conversion" que el intento C)
+# @name chunkC
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "C-chunk-hybrid512",
+  "files": {"from_experiment": "{{convC.response.body.$.id}}"},
+  "conversion": {"heading_level": 1, "table_structure": true, "table_mode": "fast",
+                 "include": {"tables": true, "lists": false, "page_headers": false, "page_footers": false, "pictures": false}},
+  "plan": {"default": {"strategy": "hybrid", "max_tokens": 512}}
+}
+
+### 4 · estado
+GET {{chunking}}/experiments/{{chunkC.response.body.$.id}}
+
+### 4 · sus chunks
+GET {{chunking}}/experiments/{{chunkC.response.body.$.id}}/documents/{{files.response.body.$.archivos[0].sha256}}/chunks
+
+### 4 · comparar el mismo plan sobre dos conversiones distintas (B vs C)
+GET {{chunking}}/experiments/compare?ids={{chunk1.response.body.$.id}}&ids={{chunkC.response.body.$.id}}
+
+# ── Ver todo ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+### todos los experimentos, el más nuevo primero
+GET {{chunking}}/experiments

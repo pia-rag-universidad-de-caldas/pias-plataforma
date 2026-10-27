@@ -1,0 +1,79 @@
+# Chunking · puntuaciones de experimentos (feature 025, estructura de prueba): criterios libres (nombre → número en
+# SCORE_MIN–SCORE_MAX, 0–5); los de prueba de config (coherencia, completitud, tamano) siempre salen en el resumen.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j y dos experimentos (experiments.http). Usa respuestas anteriores (# @name, sintaxis de REST Client).
+
+@chunking = http://127.0.0.1:8000/chunking
+
+### scores · los dos experimentos más nuevos
+# @name list
+GET {{chunking}}/experiments
+
+### scores · puntuar el primero (201 con su id)
+# @name a1
+POST {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores
+Content-Type: application/json
+
+{"author": "analista", "criteria": {"coherencia": 4, "completitud": 3, "tamano": 5}, "comment": "objetivos bien partidos"}
+
+### scores · otra puntuación del primero, con un criterio libre nuevo (no hace falta cambiar código)
+# @name a2
+POST {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores
+Content-Type: application/json
+
+{"author": "otra persona", "criteria": {"coherencia": 2, "legibilidad": 4.5}}
+
+### scores · puntuar el segundo
+# @name b1
+POST {{chunking}}/experiments/{{list.response.body.$[1].id}}/scores
+Content-Type: application/json
+
+{"author": "analista", "criteria": {"coherencia": 3, "completitud": 2, "tamano": 1}}
+
+### scores · las del primero, con el promedio por criterio y general
+GET {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores
+
+### scores · leer una
+GET {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores/{{a2.response.body.$.id}}
+
+### scores · modificar solo lo que viene: un criterio en null se borra, otro se agrega; cambia el comentario
+PATCH {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores/{{a2.response.body.$.id}}
+Content-Type: application/json
+
+{"criteria": {"legibilidad": null, "tamano": 4}, "comment": "revisada"}
+
+### scores · reemplazar una entera (lo que no viene queda vacío)
+PUT {{chunking}}/experiments/{{list.response.body.$[1].id}}/scores/{{b1.response.body.$.id}}
+Content-Type: application/json
+
+{"author": "analista", "criteria": {"coherencia": 3.5}}
+
+### scores · comparar los dos: petición resumida, puntuaciones vigentes, promedios y números clave de resultados
+GET {{chunking}}/experiments/compare?ids={{list.response.body.$[0].id}}&ids={{list.response.body.$[1].id}}
+
+### scores · borrar una (204) y otra vez (404)
+DELETE {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores/{{a1.response.body.$.id}}
+
+###
+DELETE {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores/{{a1.response.body.$.id}}
+
+### scores · 422: valor fuera de 0–5
+POST {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores
+Content-Type: application/json
+
+{"criteria": {"coherencia": 7}}
+
+### scores · 422: clave desconocida
+POST {{chunking}}/experiments/{{list.response.body.$[0].id}}/scores
+Content-Type: application/json
+
+{"criterios": {"coherencia": 3}}
+
+### scores · compare con un solo id (422) y con uno que no existe (404)
+GET {{chunking}}/experiments/compare?ids={{list.response.body.$[0].id}}
+
+###
+GET {{chunking}}/experiments/compare?ids={{list.response.body.$[0].id}}&ids=nope
+
+### scores · experimento que no existe (404)
+GET {{chunking}}/experiments/nope/scores

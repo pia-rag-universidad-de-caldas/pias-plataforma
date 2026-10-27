@@ -1,0 +1,18 @@
+# Chunking · documents (feature 023): what is in the graph, read by chunking through data over HTTP.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j y al menos una corrida (runs.http). Usa respuestas anteriores (# @name, sintaxis de REST Client).
+
+@chunking = http://127.0.0.1:8000/chunking
+
+### documents · the documents in the graph (chunked or in error), ordered by sha256
+# @name documents
+GET {{chunking}}/documents?page=1&per_page=10
+
+### documents · one of them: origin in base/, status, fingerprint, chunks, max_tokens, tokenizer
+GET {{chunking}}/documents/{{documents.response.body.$.documents[0].sha256}}
+
+### documents · its sections and chunks, in order (headings, pages, tokens <= max_tokens)
+GET {{chunking}}/documents/{{documents.response.body.$.documents[0].sha256}}/chunks
+
+### documents · unknown sha256 (404)
+GET {{chunking}}/documents/nope/chunks

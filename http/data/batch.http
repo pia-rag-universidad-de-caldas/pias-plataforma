@@ -1,0 +1,101 @@
+# Graph · POST /batch (feature 022): a document and everything under it in one transaction.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requires Neo4j: NEO4J_PASSWORD=... uv run prueba-chunking serve (standalone graph server: uv run prueba-chunking-data serve,
+# then @graph = http://127.0.0.1:8001). Docs: http://127.0.0.1:8000/data/docs
+# Self-contained: creates its own "test-batch-*" nodes and deletes them at the end.
+
+@graph = http://127.0.0.1:8000/data
+
+### batch · a PIAA that another load already filled (ensure must not touch it)
+POST {{graph}}/nodes/PIAA
+Content-Type: application/json
+
+{"id": "test-batch-piaa", "properties": {"name": "set by another load"}}
+
+### batch · write a document: 200 with {deleted, created, replaced, kept, relationships}
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-batch-json"},
+  "nodes": [
+    {"label": "PIAA", "id": "test-batch-piaa", "properties": {"name": "ignored"}, "mode": "ensure"},
+    {"label": "JSON", "id": "test-batch-json", "properties": {"sha256": "aaa", "estado": "fragmentado"}},
+    {"label": "SECCION", "id": "test-batch-s1", "properties": {"orden": 0, "encabezados": ["Intro"]}},
+    {"label": "FRAGMENTOS", "id": "test-batch-f1", "properties": {"indice": 0, "texto": "uno", "paginas": [1]}},
+    {"label": "FRAGMENTOS", "id": "test-batch-f2", "properties": {"indice": 1, "texto": "dos", "paginas": [1, 2]}}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "PIAA", "id": "test-batch-piaa"}, "target": {"label": "JSON", "id": "test-batch-json"}},
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-batch-json"}, "target": {"label": "SECCION", "id": "test-batch-s1"}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-batch-s1"}, "target": {"label": "FRAGMENTOS", "id": "test-batch-f1"}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-batch-s1"}, "target": {"label": "FRAGMENTOS", "id": "test-batch-f2"}}
+  ]
+}
+
+### batch · check: the PIAA kept its properties
+GET {{graph}}/nodes/PIAA/test-batch-piaa
+
+### batch · reprocess the document: replace_from deletes the old SECCION/FRAGMENTOS (deleted: 3), never the PIAA
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-batch-json"},
+  "nodes": [
+    {"label": "PIAA", "id": "test-batch-piaa", "mode": "ensure"},
+    {"label": "JSON", "id": "test-batch-json", "properties": {"sha256": "bbb", "estado": "fragmentado"}},
+    {"label": "SECCION", "id": "test-batch-s2", "properties": {"orden": 0, "encabezados": []}},
+    {"label": "FRAGMENTOS", "id": "test-batch-f3", "properties": {"indice": 0, "texto": "nuevo"}}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "PIAA", "id": "test-batch-piaa"}, "target": {"label": "JSON", "id": "test-batch-json"}},
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-batch-json"}, "target": {"label": "SECCION", "id": "test-batch-s2"}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-batch-s2"}, "target": {"label": "FRAGMENTOS", "id": "test-batch-f3"}}
+  ]
+}
+
+### batch · check: the old section is gone (404)
+GET {{graph}}/nodes/SECCION/test-batch-s1
+
+### batch · outside the schema, repeated node and empty id (422, lists every problem; nothing written)
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "nodes": [
+    {"label": "JSON", "id": "test-batch-bad"},
+    {"label": "JSON", "id": "test-batch-bad"},
+    {"label": "SECCION", "id": ""}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "JSON", "id": "test-batch-bad"}, "target": {"label": "PIAA", "id": "test-batch-piaa"}}
+  ]
+}
+
+### batch · relationship end that doesn't exist (422; the transaction is rolled back, replace_from included)
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-batch-json"},
+  "nodes": [{"label": "JSON", "id": "test-batch-json", "properties": {"sha256": "ccc"}}],
+  "relationships": [
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-batch-json"}, "target": {"label": "SECCION", "id": "does-not-exist"}}
+  ]
+}
+
+### batch · check: still sha256 "bbb" and test-batch-s2 still there
+GET {{graph}}/nodes/JSON/test-batch-json/relationships
+
+### batch · cleanup: PIAA
+DELETE {{graph}}/nodes/PIAA/test-batch-piaa
+
+### batch · cleanup: JSON
+DELETE {{graph}}/nodes/JSON/test-batch-json
+
+### batch · cleanup: SECCION
+DELETE {{graph}}/nodes/SECCION/test-batch-s2
+
+### batch · cleanup: FRAGMENTOS
+DELETE {{graph}}/nodes/FRAGMENTOS/test-batch-f3

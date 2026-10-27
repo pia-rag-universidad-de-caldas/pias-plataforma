@@ -1,0 +1,66 @@
+# Conexiones · un experimento de punta a punta (feature 025): ingesta → chunking (Docling + plan por secciones) → data.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Docling y Neo4j. Usa respuestas anteriores (# @name, sintaxis de REST Client). Ejecutar de arriba a abajo.
+# Escribe solo etiquetas de experimentos; los pasos 1 y 9 muestran que el grafo de producción no cambia. Repetible: al
+# final borra el experimento (los EXP_DOCUMENTO quedan, para reutilizar la conversión la próxima vez).
+
+@host = http://127.0.0.1:8000
+
+### 1 · producción antes: cuántos JSON y FRAGMENTOS hay (anotar "total")
+GET {{host}}/data/nodes/JSON?per_page=1
+
+###
+GET {{host}}/data/nodes/FRAGMENTOS?per_page=1
+
+### 2 · ingesta: dos aptos reales
+# @name source
+GET {{host}}/ingesta/data?page=1&per_page=2&type=pdf
+
+### 3 · chunking: experimento con esos dos (objetivos por puntos, el resto hybrid); 202 con su id
+# @name experiment
+POST {{host}}/chunking/experiments
+Content-Type: application/json
+
+{
+  "name": "conexion-punta-a-punta",
+  "files": {"sha256s": ["{{source.response.body.$.archivos[0].sha256}}", "{{source.response.body.$.archivos[1].sha256}}"]},
+  "plan": {"rules": [{"match": {"titles": ["objetivo"]}, "chunking": {"strategy": "points"}}],
+           "default": {"strategy": "hybrid", "max_tokens": 384}}
+}
+
+### 4 · chunking: estado; repetir hasta "finished" (results: por estrategia y por regla)
+GET {{host}}/chunking/experiments/{{experiment.response.body.$.id}}
+
+### 5 · data: el EXPERIMENTO (petición y registro de resultados como JSON)
+GET {{host}}/data/nodes/EXPERIMENTO/{{experiment.response.body.$.id}}
+
+### 6 · data: lo que usa (EXP_USA → EXP_DOCUMENTO, con el resumen por documento) y genera (EXP_GENERA → EXP_SECCION)
+# @name relations
+GET {{host}}/data/nodes/EXPERIMENTO/{{experiment.response.body.$.id}}/relationships
+
+### 7 · data: la primera sección del primer documento (regla, estrategia, parámetros) y su primer chunk
+GET {{host}}/data/nodes/EXP_SECCION/{{experiment.response.body.$.id}}:{{source.response.body.$.archivos[0].sha256}}:0
+
+###
+GET {{host}}/data/nodes/EXP_SECCION/{{experiment.response.body.$.id}}:{{source.response.body.$.archivos[0].sha256}}:0/relationships
+
+### 8 · chunking: lo mismo leído desde chunking (documentos, secciones con su regla, chunks)
+GET {{host}}/chunking/experiments/{{experiment.response.body.$.id}}/documents/{{source.response.body.$.archivos[0].sha256}}
+
+###
+GET {{host}}/chunking/experiments/{{experiment.response.body.$.id}}/documents/{{source.response.body.$.archivos[0].sha256}}/chunks
+
+### 9 · producción después: los mismos "total" que en el paso 1 (el experimento no tocó PIAA/JSON/SECCION/FRAGMENTOS)
+GET {{host}}/data/nodes/JSON?per_page=1
+
+###
+GET {{host}}/data/nodes/FRAGMENTOS?per_page=1
+
+### 10 · borrar el experimento: sus secciones, chunks y puntuaciones; las conversiones (EXP_DOCUMENTO) quedan
+DELETE {{host}}/chunking/experiments/{{experiment.response.body.$.id}}
+
+### 11 · check: la sección ya no está (404) y la conversión sí (200)
+GET {{host}}/data/nodes/EXP_SECCION/{{experiment.response.body.$.id}}:{{source.response.body.$.archivos[0].sha256}}:0
+
+###
+GET {{host}}/data/nodes/EXP_DOCUMENTO?per_page=5

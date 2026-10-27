@@ -1,0 +1,174 @@
+# Graph · nodes CRUD.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requires Neo4j: NEO4J_PASSWORD=... uv run prueba-chunking serve (standalone graph server: uv run prueba-chunking-data serve,
+# then @graph = http://127.0.0.1:8001). Docs: http://127.0.0.1:8000/data/docs
+# Run top to bottom: creates "test-*" nodes, tries the errors and deletes them (repeatable).
+
+@graph = http://127.0.0.1:8000/data
+
+# ── Nodes: create (201) ─────────────────────────────────────────────────────────────────────────────
+
+### nodes · create FACULTAD
+POST {{graph}}/nodes/FACULTAD
+Content-Type: application/json
+
+{"id": "test-eng", "properties": {"name": "Engineering"}}
+
+### nodes · create PROGRAMA (properties of several types, including a list)
+POST {{graph}}/nodes/PROGRAMA
+Content-Type: application/json
+
+{"id": "test-cs", "properties": {"name": "Computer Science", "credits": 160, "active": true, "campuses": ["Manizales", "Pereira"]}}
+
+### nodes · create ASIGNATURA
+POST {{graph}}/nodes/ASIGNATURA
+Content-Type: application/json
+
+{"id": "test-db", "properties": {"name": "Databases", "semester": 5}}
+
+### nodes · create PIAA
+POST {{graph}}/nodes/PIAA
+Content-Type: application/json
+
+{"id": "test-671047", "properties": {"code": "671047", "year": 2024}}
+
+### nodes · create JSON
+POST {{graph}}/nodes/JSON
+Content-Type: application/json
+
+{"id": "test-json", "properties": {"file": "2024-11-Semana_04-671047-piaa.json"}}
+
+### nodes · create SECCION
+POST {{graph}}/nodes/SECCION
+Content-Type: application/json
+
+{"id": "test-section", "properties": {"title": "Assessment", "order": 3}}
+
+### nodes · create FRAGMENTOS
+POST {{graph}}/nodes/FRAGMENTOS
+Content-Type: application/json
+
+{"id": "test-fragment", "properties": {"text": "The final exam is worth 60 %.", "tokens": 9}}
+
+### nodes · create HALLAZGOS
+POST {{graph}}/nodes/HALLAZGOS
+Content-Type: application/json
+
+{"id": "test-finding", "properties": {"description": "A single exam carries more than 50 % of the grade"}}
+
+### nodes · create ANTIPATRON
+POST {{graph}}/nodes/ANTIPATRON
+Content-Type: application/json
+
+{"id": "test-antipattern", "properties": {"name": "Concentrated assessment"}}
+
+### nodes · create NORMA
+POST {{graph}}/nodes/NORMA
+Content-Type: application/json
+
+{"id": "test-rule", "properties": {"name": "Student regulations", "article": "Art. 40"}}
+
+### nodes · create CHAT
+POST {{graph}}/nodes/CHAT
+Content-Type: application/json
+
+{"id": "test-chat", "properties": {"user": "teacher"}}
+
+### nodes · create CONSULTA
+POST {{graph}}/nodes/CONSULTA
+Content-Type: application/json
+
+{"id": "test-query", "properties": {"question": "How is the course assessed?"}}
+
+### nodes · create without id (one is generated; see the response). The cleanup doesn't delete it: delete it by hand
+POST {{graph}}/nodes/CHAT
+Content-Type: application/json
+
+{}
+
+# ── Nodes: read, list and update ────────────────────────────────────────────────────────────────────
+
+### nodes · read one
+GET {{graph}}/nodes/PROGRAMA/test-cs
+
+### nodes · list a label (ordered by id, 50 per page)
+GET {{graph}}/nodes/CHAT
+
+### nodes · list with pagination
+GET {{graph}}/nodes/CHAT?page=1&per_page=1
+
+### nodes · PATCH: changes credits and removes campuses (null), keeps the rest
+PATCH {{graph}}/nodes/PROGRAMA/test-cs
+Content-Type: application/json
+
+{"properties": {"credits": 170, "campuses": null}}
+
+### nodes · PUT: replaces all the properties (the ones not sent are removed)
+PUT {{graph}}/nodes/FACULTAD/test-eng
+Content-Type: application/json
+
+{"properties": {"name": "Faculty of Engineering", "acronym": "FE"}}
+
+# ── Nodes: errors ───────────────────────────────────────────────────────────────────────────────────
+
+### nodes · repeated id (409)
+POST {{graph}}/nodes/FACULTAD
+Content-Type: application/json
+
+{"id": "test-eng"}
+
+### nodes · doesn't exist (404)
+GET {{graph}}/nodes/PROGRAMA/does-not-exist
+
+### nodes · label outside the schema (422)
+GET {{graph}}/nodes/PROFESOR
+
+### nodes · property Neo4j can't store: a map (422)
+POST {{graph}}/nodes/NORMA
+Content-Type: application/json
+
+{"properties": {"detail": {"a": 1}}}
+
+# ── Cleanup: delete (204; repeating them gives 404) ─────────────────────────────────────────────────
+
+### nodes · delete JSON: its relationships go with it (DETACH)
+DELETE {{graph}}/nodes/JSON/test-json
+
+### nodes · check: PIAA no longer has the ES relationship
+GET {{graph}}/nodes/PIAA/test-671047/relationships
+
+### nodes · delete FACULTAD
+DELETE {{graph}}/nodes/FACULTAD/test-eng
+
+### nodes · delete PROGRAMA
+DELETE {{graph}}/nodes/PROGRAMA/test-cs
+
+### nodes · delete ASIGNATURA
+DELETE {{graph}}/nodes/ASIGNATURA/test-db
+
+### nodes · delete PIAA
+DELETE {{graph}}/nodes/PIAA/test-671047
+
+### nodes · delete SECCION
+DELETE {{graph}}/nodes/SECCION/test-section
+
+### nodes · delete FRAGMENTOS
+DELETE {{graph}}/nodes/FRAGMENTOS/test-fragment
+
+### nodes · delete HALLAZGOS
+DELETE {{graph}}/nodes/HALLAZGOS/test-finding
+
+### nodes · delete ANTIPATRON
+DELETE {{graph}}/nodes/ANTIPATRON/test-antipattern
+
+### nodes · delete NORMA
+DELETE {{graph}}/nodes/NORMA/test-rule
+
+### nodes · delete CHAT
+DELETE {{graph}}/nodes/CHAT/test-chat
+
+### nodes · delete CONSULTA
+DELETE {{graph}}/nodes/CONSULTA/test-query
+
+### nodes · delete one that no longer exists (404)
+DELETE {{graph}}/nodes/CONSULTA/test-query

@@ -1,0 +1,249 @@
+# Chunking · experimentos (feature 025): convertir con Docling y partir cada documento con un plan por secciones.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Docling (uv sync --extra chunk) y Neo4j. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# Escribe solo etiquetas de experimentos (EXPERIMENTO, EXP_*): el grafo de producción no se toca. Docs: /chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+@ingesta = http://127.0.0.1:8000/ingesta
+
+### experiments · simulate: qué archivos entrarían y qué conversiones se reutilizarían (200; no guarda nada)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "simulacion", "files": {"limit": 5, "types": ["pdf", "docx"]}, "simulate": true}
+
+### experiments · el ejemplo del spec: 5 aptos; introducción/contexto con fixed, objetivos por puntos, contenido
+### semántico, el último 10 % por sección y el resto hybrid (202; corre en segundo plano)
+# @name spec
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "piaa-objetivos-por-puntos",
+  "description": "el ejemplo del spec 025",
+  "files": {"limit": 5, "types": ["pdf", "docx"]},
+  "conversion": {"heading_level": 1, "numbered_titles": true, "table_structure": true, "table_mode": "accurate",
+                 "include": {"tables": true, "lists": true, "page_headers": false, "page_footers": false, "pictures": false}},
+  "plan": {
+    "rules": [
+      {"match": {"titles": ["introducción", "contexto", "justificación"]}, "chunking": {"strategy": "fixed", "max_tokens": 256, "overlap_tokens": 32}},
+      {"match": {"titles": ["objetivo"]}, "chunking": {"strategy": "points"}},
+      {"match": {"titles": ["contenido", "unidad", "tema"]}, "chunking": {"strategy": "semantic", "max_tokens": 384, "similarity_threshold": 0.6}},
+      {"match": {"position": {"from": 0.9, "to": 1.0}}, "chunking": {"strategy": "section"}}
+    ],
+    "default": {"strategy": "hybrid", "max_tokens": 512}
+  }
+}
+
+### experiments · mientras corre, otro experimento (o una corrida de producción) es 409
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "otro", "files": {"limit": 1}}
+
+### experiments · estado, progreso y, al terminar, el registro de resultados (por estrategia y por regla)
+GET {{chunking}}/experiments/{{spec.response.body.$.id}}
+
+### experiments · los mismos documentos y la misma conversión (se reutiliza: sin Docling), todo con `element`
+# @name reuse
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{
+  "name": "mismos-documentos-element",
+  "files": {"from_experiment": "{{spec.response.body.$.id}}"},
+  "conversion": {"heading_level": 1, "table_structure": true, "table_mode": "accurate"},
+  "plan": {"default": {"strategy": "element"}}
+}
+
+### experiments · su progreso: converted 0, reused = todos
+GET {{chunking}}/experiments/{{reuse.response.body.$.id}}
+
+### experiments · una estrategia por experimento sobre archivos concretos (por sha256)
+# @name page1
+GET {{ingesta}}/data?page=1&per_page=2
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hybrid", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}", "{{page1.response.body.$.archivos[1].sha256}}"]},
+ "plan": {"default": {"strategy": "hybrid", "max_tokens": 256, "merge_peers": false}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "section", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]}, "plan": {"default": {"strategy": "section", "max_tokens": 384}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "page", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]}, "plan": {"default": {"strategy": "page", "max_tokens": 256}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "fixed", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]}, "plan": {"default": {"strategy": "fixed", "max_tokens": 128, "overlap_tokens": 16}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "points", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]}, "plan": {"default": {"strategy": "points"}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "semantic", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]},
+ "plan": {"default": {"strategy": "semantic", "max_tokens": 256, "similarity_threshold": 0.5, "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "element", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"]}, "plan": {"default": {"strategy": "element"}}}
+
+### experiments · todos (del grafo, no solo de esta sesión), el más nuevo primero
+GET {{chunking}}/experiments
+
+### experiments · documentos de un experimento (reutilizado, estado, secciones, chunks)
+# @name docs
+GET {{chunking}}/experiments/{{spec.response.body.$.id}}/documents
+
+### experiments · un documento: su conversión (parámetros y JSON por títulos) y cada sección (regla, estrategia)
+GET {{chunking}}/experiments/{{spec.response.body.$.id}}/documents/{{docs.response.body.$[0].sha256}}
+
+### experiments · sus chunks, por sección y en orden
+GET {{chunking}}/experiments/{{spec.response.body.$.id}}/documents/{{docs.response.body.$[0].sha256}}/chunks
+
+### experiments · 422: ningún modo de archivos, o dos a la vez
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"sha256s": ["{{page1.response.body.$.archivos[0].sha256}}"], "from_experiment": "abc"}}
+
+### experiments · 422: filtros sin limit
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"types": ["pdf"]}}
+
+### experiments · 422: regla sin titles ni position
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"rules": [{"match": {}, "chunking": {"strategy": "section"}}]}}
+
+### experiments · 422: position fuera de 0–1
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"rules": [{"match": {"position": {"from": 0.5, "to": 1.5}}, "chunking": {}}]}}
+
+### experiments · 422: estrategia desconocida
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"default": {"strategy": "magic"}}}
+
+### experiments · 422: parámetro de otra estrategia (overlap_tokens con hybrid; max_tokens con element)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"default": {"strategy": "hybrid", "overlap_tokens": 10}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"default": {"strategy": "element", "max_tokens": 100}}}
+
+### experiments · 422: modelo de embeddings fuera de la lista y clave desconocida (un error de tipeo no se ignora)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"default": {"strategy": "semantic", "embedding_model": "otro/modelo"}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"limit": 1}, "plan": {"default": {"strategy": "fixed", "overlap": 10}}}
+
+### experiments · from_experiment que no existe (404)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"from_experiment": "nope"}}
+
+### experiments · borrar el segundo: sus secciones, chunks y puntuaciones; los EXP_DOCUMENTO quedan (los usa el primero)
+DELETE {{chunking}}/experiments/{{reuse.response.body.$.id}}
+
+### experiments · ya no está (404)
+GET {{chunking}}/experiments/{{reuse.response.body.$.id}}
+
+# ── Feature 028 (pipeline): páginas, solo conversión, JSON oficial y promote ──────────────────────────────────────
+# OJO: promote escribe en el grafo OFICIAL (PIAA, JSON, SECCION, FRAGMENTOS): usar un Neo4j de prueba.
+
+### 028 · simulate por páginas: páginas 1 a 2 de 3 archivos de /ingesta/data, pdf o docx (200)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "paginas", "files": {"pages": {"from": 1, "to": 2}, "per_page": 3, "types": ["pdf", "docx"]}, "simulate": true}
+
+### 028 · solo conversión (sin plan): página 1 de 2 archivos pdf; guarda solo los EXP_DOCUMENTO (202)
+# @name convert
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "solo-conversion", "files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]},
+ "conversion": {"heading_level": 1, "numbered_titles": true}}
+
+### 028 · estado: repetir hasta que status sea "finished" (o "failed"); documentos en estado "convertido"
+GET {{chunking}}/experiments/{{convert.response.body.$.id}}
+
+### 028 · promote de la conversión: JSON oficial (+ PIAA, + VIENE_DE) por documento (200; 409 si no terminó)
+POST {{chunking}}/experiments/{{convert.response.body.$.id}}/promote
+Content-Type: application/json
+
+{}
+
+### 028 · fragmentar desde los JSON oficiales (página 1 de 2), con plan; sin Docling (202)
+# @name chunk
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "desde-json", "files": {"from_json": {"pages": {"from": 1, "to": 1}, "per_page": 2}},
+ "plan": {"rules": [{"match": {"titles": ["objetivo"]}, "chunking": {"strategy": "points"}}],
+          "default": {"strategy": "hybrid", "max_tokens": 512}}}
+
+### 028 · cuando termine: promote de los chunks (SECCION/FRAGMENTOS bajo cada JSON oficial)
+POST {{chunking}}/experiments/{{chunk.response.body.$.id}}/promote
+Content-Type: application/json
+
+{}
+
+### 028 · el JSON oficial y sus fragmentos, en data
+GET http://127.0.0.1:8000/data/nodes/JSON?page=1&per_page=2
+
+### 028 · 422: from_json sin plan; pages con from > to; filtros sin limit/all/pages
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"from_json": {"all": true}}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"pages": {"from": 3, "to": 1}, "per_page": 5}}
+
+###
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "x", "files": {"types": ["pdf"]}}

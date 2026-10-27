@@ -1,0 +1,39 @@
+# Conexiones · pipeline → ingesta, chunking y data (feature 028), de punta a punta con una plantilla mínima.
+# Requiere Docling, Neo4j y la memoria de ingesta. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# La plantilla `test-conn-pipeline` solo selecciona (ingesta) y convierte (chunking → experimento en data): no
+# oficializa nada. Al final se cancela la corrida y se borra la plantilla.
+
+@server = http://127.0.0.1:8000
+@pipeline = {{server}}/pipeline
+
+### health · los tres módulos que llama el pipeline
+GET {{pipeline}}/health
+
+### pipeline → data: guardar la plantilla (PIPELINE)
+POST {{pipeline}}/pipelines
+Content-Type: application/json
+
+{"id": "test-conn-pipeline", "stages": [
+  {"id": "seleccionar", "action": "ingesta.select"},
+  {"id": "conversion", "action": "cycle", "actor": "lab", "max_iterations": 1,
+   "stages": [{"id": "convertir", "action": "chunking.convert"}, {"id": "puntuar", "action": "review.score"}]}
+]}
+
+### pipeline → ingesta (selección) y → chunking (experimento de solo conversión)
+# @name run
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "test-conn-pipeline", "files": {"pages": {"from": 1, "to": 1}, "per_page": 1}}
+
+### repetir hasta `waiting` (exhausted: true, max_iterations 1)
+GET {{pipeline}}/runs/{{run.response.body.run.id}}
+
+### data · la corrida y sus iteraciones en el grafo (PIPE_CORRIDA → PIPE_ITERACION → EXPERIMENTO)
+GET {{server}}/data/nodes/PIPE_CORRIDA/{{run.response.body.run.id}}/relationships
+
+### cancelar y limpiar
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/cancel
+
+###
+DELETE {{pipeline}}/pipelines/test-conn-pipeline

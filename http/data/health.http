@@ -1,0 +1,12 @@
+# Graph · health and schema.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requires Neo4j: NEO4J_PASSWORD=... uv run prueba-chunking serve (standalone graph server: uv run prueba-chunking-data serve,
+# then @graph = http://127.0.0.1:8001). Docs: http://127.0.0.1:8000/data/docs
+
+@graph = http://127.0.0.1:8000/data
+
+### graph · health: the server answers and Neo4j accepts the credentials (503 if not)
+GET {{graph}}/health
+
+### graph · schema: allowed labels and relationships
+GET {{graph}}/schema

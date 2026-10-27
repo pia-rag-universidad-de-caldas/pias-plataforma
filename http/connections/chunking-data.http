@@ -1,0 +1,91 @@
+# Conexiones · chunking → data (features 022 y 023): lo que una corrida de producción escribe y lee en el grafo.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j. Ejecutar de arriba a abajo: escribe un documento de prueba ("test-conn-*") con la MISMA forma que
+# escribe una corrida (Hierarchy.build / Hierarchy.failed), lo lee como lo lee chunking, lo reprocesa y lo borra
+# (repetible). En una corrida real los ids son: PIAA = código, JSON = sha256, SECCION = <sha256>:s<n>,
+# FRAGMENTOS = <sha256>:<indice>.
+
+@graph = http://127.0.0.1:8000/data
+
+### 1 · guardar un documento fragmentado: PIAA (ensure, solo id) → JSON → SECCION → FRAGMENTOS en una transacción
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-conn-sha"},
+  "nodes": [
+    {"label": "PIAA", "id": "test-conn-piaa", "properties": {}, "mode": "ensure"},
+    {"label": "JSON", "id": "test-conn-sha", "mode": "replace", "properties": {
+      "origen": "2020/05_Mayo/Semana_01/000815/plan.pdf", "destino": "vigentes/pdf/2020-05_Mayo-Semana_01-000815-plan.pdf",
+      "nombre": "plan.pdf", "tipo": "pdf", "anio": 2020, "codigo": "test-conn-piaa", "sha256": "test-conn-sha",
+      "fingerprint": "v1", "tokenizador": "sentence-transformers/all-MiniLM-L6-v2", "max_tokens": 512,
+      "fusionar_vecinos": true, "repetir_encabezado_tabla": false, "estructura_tablas": true, "modo_tablas": "accurate",
+      "docling": "2.134.0", "estado": "fragmentado", "error": null, "fragmentado_en": "2026-10-22T10:00:00-05:00",
+      "fragmentos": 2}},
+    {"label": "SECCION", "id": "test-conn-sha:s0", "mode": "replace", "properties": {"orden": 0, "encabezados": ["OBJETIVOS"]}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:0", "mode": "replace", "properties": {"indice": 0, "texto": "Primer chunk", "texto_contextualizado": "OBJETIVOS\nPrimer chunk", "encabezados": ["OBJETIVOS"], "paginas": [1], "tokens": 5}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:1", "mode": "replace", "properties": {"indice": 1, "texto": "Segundo chunk", "texto_contextualizado": "OBJETIVOS\nSegundo chunk", "encabezados": ["OBJETIVOS"], "paginas": [1, 2], "tokens": 5}}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "PIAA", "id": "test-conn-piaa"}, "target": {"label": "JSON", "id": "test-conn-sha"}, "properties": {}},
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-conn-sha"}, "target": {"label": "SECCION", "id": "test-conn-sha:s0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:1"}, "properties": {}}
+  ]
+}
+
+### 2 · lo procesado: chunking compara origen, sha256, fingerprint y estado de cada JSON (paginado de a 500)
+GET {{graph}}/nodes/JSON?page=1&per_page=500
+
+### 3 · el documento y lo que le cuelga (así lee chunking las secciones y sus chunks)
+GET {{graph}}/nodes/JSON/test-conn-sha/relationships
+
+###
+GET {{graph}}/nodes/SECCION/test-conn-sha:s0/relationships
+
+### 4 · reprocesar con otros parámetros: replace_from borra la sección y los chunks viejos; el PIAA queda
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-conn-sha"},
+  "nodes": [
+    {"label": "PIAA", "id": "test-conn-piaa", "properties": {}, "mode": "ensure"},
+    {"label": "JSON", "id": "test-conn-sha", "mode": "replace", "properties": {"origen": "2020/05_Mayo/Semana_01/000815/plan.pdf", "sha256": "test-conn-sha", "fingerprint": "v2", "max_tokens": 256, "estado": "fragmentado", "fragmentos": 1}},
+    {"label": "SECCION", "id": "test-conn-sha:s0", "mode": "replace", "properties": {"orden": 0, "encabezados": []}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:0", "mode": "replace", "properties": {"indice": 0, "texto": "Un solo chunk", "paginas": [1, 2], "tokens": 4}}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "PIAA", "id": "test-conn-piaa"}, "target": {"label": "JSON", "id": "test-conn-sha"}, "properties": {}},
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-conn-sha"}, "target": {"label": "SECCION", "id": "test-conn-sha:s0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:0"}, "properties": {}}
+  ]
+}
+
+### 5 · check: el chunk 1 viejo ya no está (404)
+GET {{graph}}/nodes/FRAGMENTOS/test-conn-sha:1
+
+### 6 · un documento que falló (Hierarchy.failed): estado "error", su motivo, sin chunks (retry_errors lo reintenta)
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-conn-error"},
+  "nodes": [{"label": "JSON", "id": "test-conn-error", "mode": "replace", "properties": {"origen": "2020/x/y/000000/roto.pdf", "sha256": "test-conn-error", "fingerprint": "v1", "estado": "error", "error": "ConversionError: PDF protegido", "fragmentos": 0}}],
+  "relationships": []
+}
+
+### cleanup
+DELETE {{graph}}/nodes/FRAGMENTOS/test-conn-sha:0
+
+###
+DELETE {{graph}}/nodes/SECCION/test-conn-sha:s0
+
+###
+DELETE {{graph}}/nodes/JSON/test-conn-sha
+
+###
+DELETE {{graph}}/nodes/JSON/test-conn-error
+
+###
+DELETE {{graph}}/nodes/PIAA/test-conn-piaa

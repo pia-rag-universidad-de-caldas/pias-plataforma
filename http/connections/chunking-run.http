@@ -1,0 +1,42 @@
+# Conexiones · una corrida de producción de punta a punta (feature 023): ingesta → chunking (Docling) → data.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Docling (uv sync --extra chunk) y Neo4j. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# Ejecutar de arriba a abajo. Escribe en el grafo de PRODUCCIÓN el documento REAL elegido (ids definitivos: su
+# sha256...); volver a ejecutarlo lo reemplaza, no lo duplica. Para probar sin tocar producción: experiment-run.http.
+
+@host = http://127.0.0.1:8000
+
+### 1 · ingesta: un archivo apto real
+# @name source
+GET {{host}}/ingesta/data?page=1&per_page=1
+
+### 2 · ingesta: el mismo archivo pedido por su sha256 (así lo resuelve chunking)
+GET {{host}}/ingesta/data/file?sha256={{source.response.body.$.archivos[0].sha256}}
+
+### 3 · chunking: refragmentar exactamente ese documento (sha256s) con otros parámetros; 202 con el id de la corrida
+# @name run
+POST {{host}}/chunking/runs
+Content-Type: application/json
+
+{"sha256s": ["{{source.response.body.$.archivos[0].sha256}}"], "parameters": {"max_tokens": 256}}
+
+### 4 · chunking: estado de la corrida; repetir hasta "finished" (chunked: 1, o errors: 1 con su motivo en failures)
+GET {{host}}/chunking/runs/{{run.response.body.$.id}}
+
+### 5 · chunking: el documento leído del grafo (por sha256, el mismo de ingesta), con los parámetros usados
+GET {{host}}/chunking/documents/{{source.response.body.$.archivos[0].sha256}}
+
+### 6 · chunking: sus secciones y chunks en orden
+GET {{host}}/chunking/documents/{{source.response.body.$.archivos[0].sha256}}/chunks
+
+### 7 · data: el nodo JSON tal como quedó (origen, sha256, fingerprint, estado, max_tokens, tokenizador...)
+GET {{host}}/data/nodes/JSON/{{source.response.body.$.archivos[0].sha256}}
+
+### 8 · data: lo que le cuelga y su PIAA (ES desde el PIAA del código; TIENE_SECCION hacia sus secciones)
+GET {{host}}/data/nodes/JSON/{{source.response.body.$.archivos[0].sha256}}/relationships
+
+### 9 · data: el primer chunk (id determinista <sha256>:<indice>)
+GET {{host}}/data/nodes/FRAGMENTOS/{{source.response.body.$.archivos[0].sha256}}:0
+
+### 10 · data: el PIAA solo lleva su id (el código); chunking nunca le pone otras propiedades
+GET {{host}}/data/nodes/PIAA/{{source.response.body.$.archivos[0].codigo}}

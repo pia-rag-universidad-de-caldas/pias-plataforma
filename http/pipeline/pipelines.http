@@ -1,0 +1,74 @@
+# Pipeline · plantillas (feature 028): crear, leer, reordenar y mover etapas; un orden imposible da 422.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j (las plantillas se guardan como PIPELINE). Docs: /pipeline/docs
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### actions · el catálogo: tipo (task/wait), cola, qué necesita y qué da cada acción
+GET {{pipeline}}/actions
+
+### pipelines · todas (la predefinida `piaa` primero)
+GET {{pipeline}}/pipelines
+
+### pipelines · la `piaa`
+GET {{pipeline}}/pipelines/piaa
+
+### pipelines · una plantilla de prueba: solo el ciclo de conversión, como mucho 3 iteraciones (201)
+POST {{pipeline}}/pipelines
+Content-Type: application/json
+
+{
+  "id": "test-solo-conversion",
+  "name": "Solo conversión",
+  "stages": [
+    {"id": "seleccionar", "action": "ingesta.select"},
+    {"id": "conversion", "action": "cycle", "actor": "lab", "max_iterations": 3,
+     "params": {"conversion": {"heading_level": 1}},
+     "stages": [{"id": "convertir", "action": "chunking.convert"}, {"id": "puntuar", "action": "review.score"}]},
+    {"id": "oficializar_json", "action": "data.promote_conversion"}
+  ]
+}
+
+### pipelines · la misma otra vez (409)
+POST {{pipeline}}/pipelines
+Content-Type: application/json
+
+{"id": "test-solo-conversion", "stages": [{"id": "seleccionar", "action": "ingesta.select"}]}
+
+### pipelines · reordenar: oficializar antes del ciclo (422: necesita conversion_aprobada)
+PUT {{pipeline}}/pipelines/test-solo-conversion/stages
+Content-Type: application/json
+
+{"order": ["seleccionar", "oficializar_json", "conversion"]}
+
+### pipelines · mover dentro del ciclo: la puntuación antes de convertir (422: la revisión va al final del ciclo)
+POST {{pipeline}}/pipelines/test-solo-conversion/stages/puntuar/move
+Content-Type: application/json
+
+{"before": "convertir"}
+
+### pipelines · piaa con embeber DENTRO del ciclo de chunking (lab2 puntúa con los embeddings): reemplazar la plantilla
+PUT {{pipeline}}/pipelines/test-solo-conversion
+Content-Type: application/json
+
+{
+  "stages": [
+    {"id": "seleccionar", "action": "ingesta.select"},
+    {"id": "conversion", "action": "cycle", "actor": "lab",
+     "stages": [{"id": "convertir", "action": "chunking.convert"}, {"id": "puntuar_conversion", "action": "review.score"}]},
+    {"id": "oficializar_json", "action": "data.promote_conversion"},
+    {"id": "seleccionar_json", "action": "data.select_json"},
+    {"id": "chunking", "action": "cycle", "actor": "lab2",
+     "stages": [{"id": "fragmentar", "action": "chunking.chunk"},
+                {"id": "embeber", "action": "external", "actor": "embeber", "needs": ["chunks"], "gives": ["embeddings"]},
+                {"id": "puntuar_chunks", "action": "review.score"}]},
+    {"id": "oficializar_chunks", "action": "data.promote_chunks"},
+    {"id": "revisar", "action": "external", "actor": "modelscenter", "needs": ["embeddings"], "gives": ["revision"]}
+  ]
+}
+
+### pipelines · la predefinida no se borra (409)
+DELETE {{pipeline}}/pipelines/piaa
+
+### pipelines · borrar la de prueba (204)
+DELETE {{pipeline}}/pipelines/test-solo-conversion

@@ -1,0 +1,34 @@
+# Conexiones · chunking → ingesta (feature 022): lo que chunking le pide a ingesta, en el mismo orden.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Ejecutar de arriba a abajo: cada petición usa la respuesta de la anterior (# @name, sintaxis de REST Client; httpyac
+# no la entiende). Solo lee; no escribe nada.
+
+@ingesta = http://127.0.0.1:8000/ingesta
+@per_page = 5
+
+### 1 · por páginas: la primera página de aptos (chunking pide una, la procesa y recién después la siguiente)
+# @name page1
+GET {{ingesta}}/data?page=1&per_page={{per_page}}
+
+### 2 · la página siguiente (total y paginas de la respuesta anterior dicen cuántas hay)
+# @name page2
+GET {{ingesta}}/data?page=2&per_page={{per_page}}
+
+### 3 · por páginas con filtros (los mismos que acepta POST /chunking/runs): solo PDF de un código
+GET {{ingesta}}/data?type=pdf&code={{page1.response.body.$.archivos[0].codigo}}&per_page={{per_page}}
+
+### 4 · por un documento específico: el primero de la página 1, por su sha256 (lo que hace chunking con "sha256s")
+# @name file
+GET {{ingesta}}/data/file?sha256={{page1.response.body.$.archivos[0].sha256}}
+
+### 5 · su contenido (Content-Type = mime guardado; el sha256 del cuerpo debe ser el de la respuesta anterior)
+GET {{ingesta}}/data/content?origin={{file.response.body.$.origen}}
+
+### 6 · reorganizado no debe cambiar entre páginas; si cambia, chunking corta la corrida (compararlo con el paso 1)
+GET {{ingesta}}/data?page=1&per_page=1
+
+### 7 · errores que chunking debe convertir en un fallo del archivo (404), no de la corrida
+GET {{ingesta}}/data/file?sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+###
+GET {{ingesta}}/data/content?origin=no/existe.pdf

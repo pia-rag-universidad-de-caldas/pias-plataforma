@@ -1,0 +1,65 @@
+# Pipeline · plantillas (features 028 y 044): crear, leer, reordenar y mover etapas; un orden imposible da 422.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j (las plantillas se guardan como PIPELINE). Docs: /pipeline/docs
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### actions · el catálogo: tipo (task/wait), cola, qué necesita y qué da cada acción
+GET {{pipeline}}/actions
+
+### pipelines · todas (las predefinidas `produccion` y `laboratorio` primero)
+GET {{pipeline}}/pipelines
+
+### pipelines · la de producción y la del laboratorio
+GET {{pipeline}}/pipelines/produccion
+
+###
+GET {{pipeline}}/pipelines/laboratorio
+
+### pipelines · revisar un orden sin guardarlo (422: chunkear antes de parsear)
+POST {{pipeline}}/pipelines/check
+Content-Type: application/json
+
+{"stages": [{"id": "ingestar", "action": "ingesta.run"}, {"id": "chunkear", "action": "chunking.promote"}]}
+
+### pipelines · una plantilla de prueba: un laboratorio de como mucho 3 iteraciones, sin aplicar (201)
+POST {{pipeline}}/pipelines
+Content-Type: application/json
+
+{
+  "id": "test-lab-corto",
+  "name": "Laboratorio corto",
+  "stages": [
+    {"id": "seleccionar", "action": "ingesta.chunkable"},
+    {"id": "parsear", "action": "parsing.parse"},
+    {"id": "laboratorio", "action": "cycle", "actor": "lab", "max_iterations": 3,
+     "params": {"chunking": {"chunker": "page"}, "embeddings": {}},
+     "stages": [{"id": "chunkear", "action": "chunking.experiment"},
+                {"id": "embeber", "action": "embeddings.experiment"},
+                {"id": "puntuar", "action": "review.score"}]}
+  ]
+}
+
+### pipelines · la misma otra vez (409)
+POST {{pipeline}}/pipelines
+Content-Type: application/json
+
+{"id": "test-lab-corto", "stages": [{"id": "seleccionar", "action": "ingesta.chunkable"}]}
+
+### pipelines · reordenar: parsear antes de seleccionar el lote (422: necesita lote_archivos)
+PUT {{pipeline}}/pipelines/test-lab-corto/stages
+Content-Type: application/json
+
+{"order": ["parsear", "seleccionar", "laboratorio"]}
+
+### pipelines · mover dentro del ciclo: embeber antes de chunkear (422: necesita experimento_chunking)
+POST {{pipeline}}/pipelines/test-lab-corto/stages/embeber/move
+Content-Type: application/json
+
+{"before": "chunkear"}
+
+### pipelines · la predefinida no se borra (409)
+DELETE {{pipeline}}/pipelines/produccion
+
+### pipelines · borrar la de prueba (204)
+DELETE {{pipeline}}/pipelines/test-lab-corto

@@ -1,0 +1,63 @@
+# Chunking · experimentos (feature 043): chunkear documentos YA PARSEADOS con una configuración, aparte de lo oficial.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere docling-core (uv sync --extra chunk) y Neo4j. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# Escribe solo etiquetas de experimentos (EXPERIMENTO, EXP_SECCION, EXP_CHUNK): los SECCION/FRAGMENTOS oficiales no se
+# tocan. Chunking no elige documentos: se le dan los sha256 (los JSON que dejó parsing). Docs: /chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+@data = http://127.0.0.1:8000/data
+
+### data · los documentos parseados: de aquí salen los sha256 (el id de cada JSON)
+# @name parsed
+GET {{data}}/nodes/JSON?page=1&per_page=2
+
+### experiments · simulate: cuáles entrarían y cuáles no están parseados (200; no guarda nada)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "simulacion", "sha256s": ["{{parsed.response.body.nodes[0].id}}"], "simulate": true}
+
+### experiments · hybrid de 126 tokens (lo de defecto): 202, corre en segundo plano
+# @name hybrid
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hybrid 126", "sha256s": ["{{parsed.response.body.nodes[0].id}}", "{{parsed.response.body.nodes[1].id}}"],
+ "chunking": {"chunker": "hybrid", "max_tokens": 126, "merge_peers": true}}
+
+### experiments · los mismos documentos, un chunk por elemento
+# @name hierarchical
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hierarchical", "from_experiment": "{{hybrid.response.body.id}}", "chunking": {"chunker": "hierarchical"}}
+
+### experiments · max_tokens con un chunker que no lo usa: 422
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "mal", "sha256s": ["{{parsed.response.body.nodes[0].id}}"], "chunking": {"chunker": "page", "max_tokens": 64}}
+
+### experiments · uno sin parsear: 409, «parse them first»
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "sin parseo", "sha256s": ["0000000000000000000000000000000000000000000000000000000000000000"]}
+
+### experiments · estado y resultados (repetir hasta "finished"); `chunked` = los sha256 chunkeados
+GET {{chunking}}/experiments/{{hybrid.response.body.id}}
+
+### data · los chunks del experimento (lo guardado se lee en data)
+GET {{data}}/nodes/EXPERIMENTO/{{hybrid.response.body.id}}/relationships
+
+### experiments · su configuración pasa a ser la activa (no chunkea nada: eso es POST /runs)
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/apply
+
+### experiments · retomar uno partial, failed o interrupted: solo los documentos que no alcanzó, con su configuración
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/resume
+
+### experiments · todos, el más nuevo primero
+GET {{chunking}}/experiments
+
+### experiments · borrar uno (sus EXP_SECCION y EXP_CHUNK; los JSON quedan)
+DELETE {{chunking}}/experiments/{{hierarchical.response.body.id}}

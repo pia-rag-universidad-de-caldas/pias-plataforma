@@ -1,0 +1,54 @@
+# Embeddings · estado, modelos y configuración activa (feature 046). El único módulo que calcula vectores; solo habla
+# con data. GET /models: los límites cuentan los 2 tokens especiales del modelo ([CLS] y [SEP]): chunking fragmenta
+# con 2 menos (el pipeline lo asegura).
+
+@base = http://127.0.0.1:8000/embeddings
+@model = sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+### health · torch y transformers instalados (sin cargar el modelo) y si data responde
+GET {{base}}/health
+
+### models · cada modelo con sus dimensiones, su límite por defecto y el máximo; `default`: el de la configuración por defecto
+GET {{base}}/models
+
+### models · y cuántos documentos oficiales tienen los vectores de cada uno (lee todos los JSON)
+GET {{base}}/models?documents=true
+
+### models · embeber con otro modelo al lado del activo (el chat sigue con el activo) ...
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["<sha256 chunkeado>"], "model": "intfloat/multilingual-e5-base"}
+
+### models · ... volverlo activo (el chat busca en su índice) ...
+PUT {{base}}/config
+Content-Type: application/json
+
+{"model": "intfloat/multilingual-e5-base"}
+
+### models · ... y borrar los vectores oficiales del anterior (409 si es el activo)
+DELETE {{base}}/models/{{model}}/vectors
+
+### config · la activa (o la de defecto), de dónde salió y si la guardada no sirve (`problem`)
+GET {{base}}/config
+
+### config · poner modelo y límite a mano (sin max_tokens: el del modelo)
+PUT {{base}}/config
+Content-Type: application/json
+
+{"model": "{{model}}", "max_tokens": 256}
+
+### config · cambiar solo el límite
+PATCH {{base}}/config
+Content-Type: application/json
+
+{"max_tokens": 128}
+
+### config · 422: un límite que el modelo no admite
+PATCH {{base}}/config
+Content-Type: application/json
+
+{"max_tokens": 100000}
+
+### config · volver a la de defecto
+DELETE {{base}}/config

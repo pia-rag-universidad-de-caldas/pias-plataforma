@@ -1,0 +1,14 @@
+# Parsing · estado y configuración (feature 042). Qué falta por parsear se consulta en data: GET /data/progress/parsing
+# (ver http/data/progress.http). Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una).
+# Docs: /parsing/docs
+
+@base = http://127.0.0.1:8000/parsing
+
+### health · Docling, el motor de OCR (RapidOCR con onnxruntime), LibreOffice y si data responde
+GET {{base}}/health
+
+### config · la configuración fija (solo lectura) y la huella que da con este Docling
+GET {{base}}/config
+
+### data · lo que falta por parsear con esa huella (pasarla en fingerprint)
+GET http://127.0.0.1:8000/data/progress/parsing?per_page=20

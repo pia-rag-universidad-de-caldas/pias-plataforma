@@ -1,0 +1,41 @@
+# llm · estado, modelos y configuración activa (feature 047). El único módulo que habla con Ollama; solo habla con data
+# (la configuración, CONFIG_OFICIAL/llm) y con Ollama (--ollama-url o OLLAMA_URL; por defecto http://127.0.0.1:11434).
+
+@base = http://127.0.0.1:8000/llm
+@model = qwen2.5:0.5b
+
+### health · si Ollama responde (versión y URL) y si data responde
+GET {{base}}/health
+
+### models · los admitidos (contexto, visión, si Ollama los tiene, el de defecto) y todo lo que Ollama tiene (503 sin Ollama)
+GET {{base}}/models
+
+### config · la activa (o la de defecto), de dónde salió y la de defecto
+GET {{base}}/config
+
+### config · poner modelo y valores a mano (lo que falta: el de defecto; num_ctx: el del modelo)
+PUT {{base}}/config
+Content-Type: application/json
+
+{"model": "{{model}}", "temperature": 0.2, "num_ctx": 4096, "max_tokens": 512, "system": "Responde en español."}
+
+### config · cambiar solo la temperatura
+PATCH {{base}}/config
+Content-Type: application/json
+
+{"temperature": 0.7}
+
+### config · 422: un contexto que el modelo no admite
+PATCH {{base}}/config
+Content-Type: application/json
+
+{"num_ctx": 10000000}
+
+### config · 422: un modelo que no está admitido
+PUT {{base}}/config
+Content-Type: application/json
+
+{"model": "gpt-4"}
+
+### config · volver a la de defecto
+DELETE {{base}}/config

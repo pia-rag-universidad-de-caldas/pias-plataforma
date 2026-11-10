@@ -1,0 +1,105 @@
+# Pipeline · laboratorio (feature 044): un lote elegido de ingesta, parseado si hace falta, y lab probando chunking y
+# embeddings juntos: una iteración = un experimento de chunking + uno de embeddings sobre sus chunks, puntuados como
+# par. Al aprobar, las dos configuraciones pasan a ser las activas (no se procesa el corpus: eso es producción).
+# Regla del par: tokenizer de chunking = modelo de embeddings; chunking.max_tokens <= límite del modelo - 2 (sus
+# tokens especiales); sin max_tokens, default_tokens del modelo - 2; embeddings recibe chunking.max_tokens + 2.
+# Trío (feature 050): el ciclo puede probar también el LLM que responde sobre esos chunks, `llm: {model, temperature,
+# num_ctx, max_tokens, system}`; su modelo debe estar admitido y descargado (GET /llm/models), si no 422 antes de
+# lanzar. La iteración lo guarda (PIPE_ITERACION.config_llm) y la bandeja de lab lo trae (`llm`), para evaluar con
+# POST /consultas/ask {against: {embeddings_experiment}, llm}. Un retry con solo `next.llm` reutiliza los experimentos
+# de chunking y embeddings de la iteración anterior. Al aprobar, `aplicar_llm` hace PUT /llm/config (sin llm, no hace
+# nada). Requiere Neo4j, la memoria de ingesta y los módulos parsing, chunking, embeddings (y llm si se prueba).
+# Usa respuestas anteriores.
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### laboratorio · simulate: el lote que tomaría la selección (200; no guarda nada)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "laboratorio", "files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]}, "simulate": true}
+
+### laboratorio · la página 1 (de 2) de PDF, hybrid con el modelo por defecto (202)
+# @name run
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "template": "laboratorio",
+  "name": "hybrid y MiniLM",
+  "files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]},
+  "params": {"laboratorio": {"chunking": {"chunker": "hybrid", "merge_peers": true}, "embeddings": {}}}
+}
+
+### laboratorio · repetir hasta `waiting` (espera a lab en `puntuar`)
+GET {{pipeline}}/runs/{{run.response.body.run.id}}
+
+### laboratorio · lab puntúa el par y repite con chunks más chicos
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab",
+ "score": {"score": 3, "criteria": {"coherencia": 3, "completitud": 2}, "author": "lab", "comment": "chunks largos"},
+ "next": {"chunking": {"max_tokens": 100}}}
+
+### laboratorio · un par que no cabe en el modelo (422: max_tokens > límite - 2; no cambia nada)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab", "next": {"chunking": {"max_tokens": 600}}}
+
+### laboratorio · lab aprueba la última iteración (o "iteration": 1): las dos configuraciones quedan activas
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "approve", "actor": "lab",
+ "score": {"score": 4, "criteria": {"coherencia": 4, "completitud": 4}, "author": "lab"}}
+
+### laboratorio · malformadas (422): dos formas de elegir archivos, parámetros de una etapa que no existe
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "laboratorio", "files": {"all": true, "sha256s": ["x"]}}
+
+###
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "laboratorio", "files": {"all": true}, "params": {"no-existe": {}}}
+
+
+### laboratorio · el trío: chunking + embeddings + llm (202; 422 si el modelo no está admitido o descargado)
+# @name trio
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "template": "laboratorio",
+  "name": "hybrid, MiniLM y qwen",
+  "files": {"pages": {"from": 1, "to": 1}, "per_page": 2, "types": ["pdf"]},
+  "params": {"laboratorio": {"chunking": {"chunker": "hybrid"}, "embeddings": {},
+             "llm": {"model": "qwen2.5:3b", "temperature": 0.2, "num_ctx": 4096}}}
+}
+
+### laboratorio · la bandeja de lab: `llm` y `embeddings_experiment` de la iteración, para POST /consultas/ask
+GET {{pipeline}}/inbox?actor=lab
+
+### laboratorio · lab repite cambiando solo el LLM: la iteración 2 reutiliza los experimentos de la 1
+POST {{pipeline}}/runs/{{trio.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab",
+ "score": {"score": 3, "criteria": {"coherencia": 3}, "author": "lab", "comment": "respuestas largas"},
+ "next": {"llm": {"temperature": 0.0, "max_tokens": 300}}}
+
+### laboratorio · un LLM que no está descargado (422; no cambia nada)
+POST {{pipeline}}/runs/{{trio.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "retry", "actor": "lab", "next": {"llm": {"model": "no-descargado"}}}
+
+### laboratorio · lab aprueba: chunking, embeddings y llm (PUT /llm/config) quedan activos
+POST {{pipeline}}/runs/{{trio.response.body.run.id}}/stages/laboratorio/decision
+Content-Type: application/json
+
+{"decision": "approve", "actor": "lab"}

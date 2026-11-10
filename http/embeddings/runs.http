@@ -1,0 +1,44 @@
+# Embeddings · corridas de producción (feature 046): embebe los FRAGMENTOS de los JSON chunkeados que se le dan, con la
+# configuración activa (resuelta al encolar). Salta lo que no cambió (`unchanged`; force lo rehace); un chunk más largo
+# que el límite hace fallar su documento sin escribir nada. Los vectores van con merge: el texto queda. El registro
+# queda en data (CORRIDA_EMBEDDINGS), así GET /runs responde también las de antes de reiniciar.
+
+@base = http://127.0.0.1:8000/embeddings
+@sha = 0000000000000000000000000000000000000000000000000000000000000000
+
+### runs · simular: qué embebería, qué saltaría y qué fallaría por largo (no calcula ni escribe)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"], "simulate": true}
+
+### runs · embeber (202; en cola)
+# @name run
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"]}
+
+### runs · estado, avance, fallos y `embedded` (los sha256 con vectores): repetir hasta "finished"
+GET {{base}}/runs/{{run.response.body.$.id}}
+
+### runs · embeber de nuevo aunque no haya cambiado
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"], "force": true}
+
+### runs · todas, la más nueva primero
+GET {{base}}/runs
+
+### runs · sacar de la fila una en cola (409 si ya corre o terminó)
+DELETE {{base}}/runs/{{run.response.body.$.id}}
+
+### runs · 422: sin sha256 (el que llama elige qué embeber)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": []}
+
+### processes · las corridas y experimentos en vivo y los terminados
+GET {{base}}/processes

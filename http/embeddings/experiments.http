@@ -1,0 +1,38 @@
+# Embeddings · experimentos (feature 046): embebe los EXP_CHUNK de un experimento de chunking TERMINADO con un modelo
+# y un límite, sin tocar lo oficial. El registro es un EXP_EMBEDDINGS -[:EXP_USA]-> EXPERIMENTO. apply copia su modelo
+# y límite a la configuración activa (no embebe nada).
+
+@base = http://127.0.0.1:8000/embeddings
+@chunking = <id de un experimento de chunking terminado>
+@model = sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+### experiments · simular
+POST {{base}}/experiments
+Content-Type: application/json
+
+{"chunking_experiment": "{{chunking}}", "model": "{{model}}", "max_tokens": 128, "simulate": true}
+
+### experiments · lanzar (202; en cola)
+# @name experiment
+POST {{base}}/experiments
+Content-Type: application/json
+
+{"name": "minilm 128", "description": "", "chunking_experiment": "{{chunking}}", "model": "{{model}}", "max_tokens": 128}
+
+### experiments · estado, avance y fallos: repetir hasta "finished"
+GET {{base}}/experiments/{{experiment.response.body.$.id}}
+
+### experiments · todos, también los de antes de reiniciar
+GET {{base}}/experiments
+
+### experiments · su modelo y límite pasan a la configuración activa (409 si no terminó)
+POST {{base}}/experiments/{{experiment.response.body.$.id}}/apply
+
+### experiments · borrar: el registro y los vectores que dejó (los chunks quedan)
+DELETE {{base}}/experiments/{{experiment.response.body.$.id}}
+
+### experiments · 404: un experimento de chunking que no existe
+POST {{base}}/experiments
+Content-Type: application/json
+
+{"chunking_experiment": "no-existe", "model": "{{model}}"}

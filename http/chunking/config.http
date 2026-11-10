@@ -1,0 +1,32 @@
+# Chunking · configuración activa (feature 043): con qué chunkea POST /runs. Si nadie la puso, la óptima por
+# defecto (hybrid, tokenizador multilingüe, max_tokens 126, merge_peers). Cambiarla no chunkea nada.
+# Requiere Neo4j (vive en un nodo CONFIG_OFICIAL). Docs: /chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+
+### config · la activa, de dónde salió y lo que es fijo
+GET {{chunking}}/config
+
+### config · además cuántos documentos oficiales están hechos con ella y con otra (lee cada JSON: lento)
+GET {{chunking}}/config?documents=true
+
+### config · a mano: lo no enviado toma el valor por defecto
+PUT {{chunking}}/config
+Content-Type: application/json
+
+{"chunker": "hybrid", "max_tokens": 100, "merge_peers": true}
+
+### config · solo lo enviado
+PATCH {{chunking}}/config
+Content-Type: application/json
+
+{"max_tokens": 126}
+
+### config · un parámetro que el chunker no usa: 422
+PUT {{chunking}}/config
+Content-Type: application/json
+
+{"chunker": "page", "merge_peers": false}
+
+### config · volver a la de defecto
+DELETE {{chunking}}/config

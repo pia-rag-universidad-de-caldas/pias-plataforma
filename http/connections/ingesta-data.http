@@ -1,0 +1,54 @@
+# Conexiones · ingesta → chunking → data, de punta a punta, sin Docling: toma un archivo REAL de ingesta y guarda en
+# el grafo lo que una corrida de producción (feature 023) guardaría de él, con un chunk de mentira.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Usa respuestas anteriores (# @name, sintaxis de REST Client). Requiere Neo4j. Ejecutar de arriba a abajo. Usa ids
+# "test-e2e-*" para no tocar nodos reales (una corrida real usa PIAA = código, JSON = sha256); lo borra al final.
+
+@ingesta = http://127.0.0.1:8000/ingesta
+@graph = http://127.0.0.1:8000/data
+
+### 1 · ingesta: un archivo apto
+# @name source
+GET {{ingesta}}/data?page=1&per_page=1
+
+### 2 · ingesta: su registro, como lo pide chunking por sha256
+# @name file
+GET {{ingesta}}/data/file?sha256={{source.response.body.$.archivos[0].sha256}}
+
+### 3 · data: guardarlo con la metadata de ingesta (sin facultad/programa/asignatura: eso se enlaza después)
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-e2e-json"},
+  "nodes": [
+    {"label": "PIAA", "id": "test-e2e-piaa", "properties": {}, "mode": "ensure"},
+    {"label": "JSON", "id": "test-e2e-json", "mode": "replace", "properties": {
+      "origen": "{{file.response.body.$.origen}}", "destino": "{{file.response.body.$.destino}}",
+      "nombre": "{{file.response.body.$.nombre}}", "tipo": "{{file.response.body.$.tipo}}",
+      "anio": {{file.response.body.$.anio}}, "codigo": "{{file.response.body.$.codigo}}",
+      "sha256": "{{file.response.body.$.sha256}}", "fingerprint": "test", "estado": "fragmentado", "fragmentos": 1}},
+    {"label": "SECCION", "id": "test-e2e-json:s0", "mode": "replace", "properties": {"orden": 0, "encabezados": []}},
+    {"label": "FRAGMENTOS", "id": "test-e2e-json:0", "mode": "replace", "properties": {"indice": 0, "texto": "chunk de prueba", "encabezados": [], "paginas": [1], "tokens": 3}}
+  ],
+  "relationships": [
+    {"type": "ES", "source": {"label": "PIAA", "id": "test-e2e-piaa"}, "target": {"label": "JSON", "id": "test-e2e-json"}, "properties": {}},
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-e2e-json"}, "target": {"label": "SECCION", "id": "test-e2e-json:s0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-e2e-json:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-e2e-json:0"}, "properties": {}}
+  ]
+}
+
+### 4 · data: el JSON guardado lleva el mismo origen y sha256 que ingesta (trazabilidad)
+GET {{graph}}/nodes/JSON/test-e2e-json
+
+### cleanup
+DELETE {{graph}}/nodes/FRAGMENTOS/test-e2e-json:0
+
+###
+DELETE {{graph}}/nodes/SECCION/test-e2e-json:s0
+
+###
+DELETE {{graph}}/nodes/JSON/test-e2e-json
+
+###
+DELETE {{graph}}/nodes/PIAA/test-e2e-piaa

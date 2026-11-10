@@ -1,0 +1,30 @@
+# Embeddings · texto → vector (feature 048): con el modelo activo (o el de `model`, como el de un experimento de
+# embeddings). La respuesta nombra los índices de ese modelo (`index`: FRAGMENTOS, `experiment_index`: EXP_EMBED), así
+# quien busca (consultas) usa el del mismo modelo. La búsqueda se fue a consultas (POST /consultas/search).
+
+@base = http://127.0.0.1:8000/embeddings
+@model = sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+### vectors · una pregunta
+POST {{base}}/vectors
+Content-Type: application/json
+
+{"texts": ["¿Qué temas se ven en el PIAA de Bases de Datos?"]}
+
+### vectors · varios textos (hasta 64), con otro modelo y límite solo para estos
+POST {{base}}/vectors
+Content-Type: application/json
+
+{"texts": ["objetivos del curso", "criterios de evaluación"], "model": "{{model}}", "max_tokens": 128}
+
+### vectors · 422: sin textos
+POST {{base}}/vectors
+Content-Type: application/json
+
+{"texts": []}
+
+### vectors · 422: una clave desconocida
+POST {{base}}/vectors
+Content-Type: application/json
+
+{"texts": ["a"], "k": 5}

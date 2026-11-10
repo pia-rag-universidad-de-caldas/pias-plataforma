@@ -1,0 +1,8 @@
+# Ingestas de esta sesión del servidor (feature 039); en vivo: ws://localhost:8000/ingesta/processes/ws
+@base = http://localhost:8000
+
+### Si hay una en proceso
+GET {{base}}/ingesta/processes?state=running
+
+### Todas
+GET {{base}}/ingesta/processes

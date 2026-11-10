@@ -1,0 +1,26 @@
+# Data · avance (features 042 y 043): cuántos archivos están parseados y cuántos documentos chunkeados, y cuáles
+# faltan. Solo lee. Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una).
+
+@base = http://127.0.0.1:8000/data
+
+### parseo · de los RAW vigentes: hechos, parciales, con error, nunca parseados, y los sha256 que faltan
+GET {{base}}/progress/parsing?per_page=50
+
+### parseo · con la huella actual (la de GET /parsing/config): uno con otra huella cuenta como faltante
+GET {{base}}/progress/parsing?fingerprint=<fingerprint>
+
+### parseo · los ya parseados
+GET {{base}}/progress/parsing?list=done
+
+### chunking · de los JSON parseados: con chunks, con error, nunca chunkeados, y los sha256 que faltan
+GET {{base}}/progress/chunking
+
+### chunking · los que ya tienen chunks
+GET {{base}}/progress/chunking?list=done&page=1&per_page=50
+
+### chunking · con la huella de la configuración activa (la de GET /chunking/config): uno chunkeado con otra, o sobre un
+# parseo anterior, cuenta como faltante. Es lo que toma POST /chunking/runs sin sha256s
+GET {{base}}/progress/chunking?fingerprint=<fingerprint>
+
+### una lista que no existe (422)
+GET {{base}}/progress/chunking?list=nope

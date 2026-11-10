@@ -1,0 +1,29 @@
+# Parsing · vista previa (feature 048, fase 2): un documento leído con la misma configuración fija que las corridas
+# (GET /parsing/config) y devuelto como texto por secciones. NO guarda nada en data: el documento no entra al corpus
+# (para eso está la subida, 049). Lo usa consultas para los adjuntos. Uno a la vez (409 si hay otro), con límite de
+# tiempo (504), de tamaño (413) y, en un PDF, de páginas (`truncated`). 503 sin Docling.
+
+@base = http://127.0.0.1:8000/parsing
+
+### preview · JSON: {name, content (base64), mime?}; el tipo sale de la extensión o del mime (pdf, docx, doc)
+POST {{base}}/preview
+Content-Type: application/json
+
+{"name": "plan.pdf", "mime": "application/pdf", "content": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA3NiA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDcyIDcyMCBUZCAoRXZhbHVhY2lvbjogZG9zIHBhcmNpYWxlcyB5IHVuIHByb3llY3RvIGZpbmFsKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDM2NyAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQzNwolJUVPRgo="}
+
+### preview · multipart con una parte `file` (cambiar la ruta por un archivo propio)
+POST {{base}}/preview
+Content-Type: multipart/form-data; boundary=preview
+
+--preview
+Content-Disposition: form-data; name="file"; filename="plan.docx"
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+
+< ./plan.docx
+--preview--
+
+### preview · otro tipo: 415
+POST {{base}}/preview
+Content-Type: application/json
+
+{"name": "notas.txt", "content": "aG9sYQ=="}

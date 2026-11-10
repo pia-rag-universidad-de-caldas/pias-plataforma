@@ -1,0 +1,11 @@
+# Ollama on an AMD GPU (ROCm): the rocm image with the GPU's devices and the groups that may open them.
+# VIDEO_GID/RENDER_GID: the host's group ids (the console passes them; the names may not exist in the image).
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:rocm}
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "${VIDEO_GID:-video}"
+      - "${RENDER_GID:-render}"

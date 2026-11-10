@@ -1,0 +1,59 @@
+# Ingesta · /data: aptos para chunking (lista paginada, un archivo y su contenido).
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Servidor único: uv run prueba-chunking serve (feature 020). Docs: http://127.0.0.1:8000/ingesta/docs
+
+@base = http://127.0.0.1:8000/ingesta
+
+### data · primera página de los aptos para chunking (50 por defecto)
+GET {{base}}/data
+
+### data · página 2 con 10 archivos por página
+GET {{base}}/data?page=7&per_page=10&type=doc
+
+### data · solo PDF
+GET {{base}}/data?type=pdf
+
+### data · varios tipos a la vez (type es repetible)
+GET {{base}}/data?type=docx&type=doc
+
+### data · filtros combinados: PDF de noviembre de 2024
+GET {{base}}/data?type=pdf&year=2024&month=11
+
+### data · una semana concreta de un año
+GET {{base}}/data?year=2024&week=Semana_04
+
+### data · los archivos de un código
+GET {{base}}/data?code=671047
+
+### data · página fuera de rango (200 con la lista vacía)
+GET {{base}}/data?page=99999
+
+### data · mes inválido (422)
+GET {{base}}/data?month=13
+
+### data/file · el registro de un apto, por su origen (el mismo de cada elemento de /data)
+GET {{base}}/data/file?origin=2020/05_Mayo/Semana_01/000815/0070813-1.pdf
+
+### data/file · el registro de un apto, por su sha256 (así lo pide chunking para refragmentar una lista de hashes)
+GET {{base}}/data/file?sha256=23826cae0a7bff405dcf0ae2d089b480f52a97bc1d2e942a8304b3b96a2c9dd2
+
+### data/file · sha256 que ningún apto tiene (404)
+GET {{base}}/data/file?sha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+### data/file · origin y sha256 a la vez, o ninguno (422: exactamente uno)
+GET {{base}}/data/file?origin=2020/05_Mayo/Semana_01/000815/0070813-1.pdf&sha256=23826cae0a7bff405dcf0ae2d089b480f52a97bc1d2e942a8304b3b96a2c9dd2
+
+###
+GET {{base}}/data/file
+
+### data/file · origen desconocido (404)
+GET {{base}}/data/file?origin=no/existe.pdf
+
+### data/file · origen registrado pero no apto para chunking (404)
+GET {{base}}/data/file?origin=2020/05_Mayo/Semana_01/012213/G4F0307-1.pdf
+
+### data/content · el archivo (de ingesta/vigentes/) con su Content-Type guardado y su nombre original
+GET {{base}}/data/content?origin=2020/05_Mayo/Semana_01/000815/0070813-1.pdf
+
+### data/content · ruta con ".." (404: nunca sale de ingesta/)
+GET {{base}}/data/content?origin=../../pyproject.toml

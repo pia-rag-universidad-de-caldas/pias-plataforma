@@ -1,0 +1,27 @@
+# Servidor único (feature 020): lo que no pertenece a ningún módulo.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# uv run prueba-chunking serve  (con NEO4J_PASSWORD=... para que /data responda)
+
+@host = http://127.0.0.1:8000
+
+### server · estado de cada módulo, consultado en proceso (siempre 200: "ok" o "degraded")
+GET {{host}}/health
+
+### server · documentación de cada módulo
+GET {{host}}/ingesta/docs
+
+###
+GET {{host}}/data/docs
+
+###
+GET {{host}}/chunking/docs
+
+###
+GET {{host}}/pipeline/docs
+
+
+### server · ruta que no es de ningún módulo (404)
+GET {{host}}/nope
+
+### Todos los procesos del servidor (feature 039); en vivo: ws://localhost:8000/processes/ws
+GET {{host}}/processes

@@ -1,0 +1,13 @@
+# Ruff for src/embeddings/: the root pyproject.toml plus the ban on importing the other modules.
+# Modules only talk to data over HTTP (feature 042); only src/server/ (composition root) imports them all.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.extend-banned-api]
+"ingesta".msg = "embeddings must not import ingesta: modules talk over HTTP; only server/ composes them"
+"data".msg = "embeddings must not import data: modules talk over HTTP; only server/ composes them"
+"parsing".msg = "embeddings must not import parsing: modules talk over HTTP; only server/ composes them"
+"chunking".msg = "embeddings must not import chunking: modules talk over HTTP; only server/ composes them"
+"pipeline".msg = "embeddings must not import pipeline: modules talk over HTTP; only server/ composes them"
+"server".msg = "embeddings must not import server: modules talk over HTTP; only server/ composes them"
+"llm".msg = "embeddings must not import llm: modules talk over HTTP (feature 047); only server/ composes them"
+"consultas".msg = "embeddings must not import consultas: modules talk over HTTP (feature 048); only server/ composes them"

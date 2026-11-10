@@ -1,0 +1,140 @@
+[project]
+name = "prueba-chunking"
+version = "0.4.0"
+description = "Ingesta, detección de duplicados y estadísticas de documentos académicos; base para fragmentarlos con Docling."
+requires-python = ">=3.12"
+authors = [{ email = "sebastian.garzon54795@ucaldas.edu.co" }]
+dependencies = [
+    "asciimatics>=1.15.0",  # pantallas de la consola (feature 034): solo la carga server/console/toolkit.py
+    "fastapi>=0.156.1",  # API HTTP de los módulos: solo la importan los paquetes api/ y server/
+    "httpx>=0.28.1",  # cliente HTTP entre módulos del mismo servidor: solo lo importan los adapters/ (feature 021)
+    "sqlalchemy>=2.1.4",  # ORM: solo lo importa adapters/
+    "uvicorn>=0.54.0",  # servidor ASGI: solo lo importa server/
+    "websockets>=16.1.1",  # /processes/ws: uvicorn lo usa para servirlo y la consola para leerlo (feature 039)
+]
+
+[project.scripts]
+prueba-chunking = "server.cli:main"  # consola (feature 034, por defecto) y serve: el servidor único (feature 020)
+
+[project.optional-dependencies]
+data = [
+    "neo4j>=6.4.1",  # driver del grafo: solo lo importa data/adapters/ (feature 015)
+]
+chunk = [
+    # chunking con los chunkers de docling-core (feature 043): solo los importa chunking/adapters/, de forma diferida.
+    # Sin Docling completo (PyTorch, modelos de layout): convertir es del módulo parsing (feature 042).
+    "docling-core[chunking]>=2.100.0",
+]
+parse = [
+    # parseo con Docling (feature 042): solo lo importa parsing/adapters/, de forma diferida
+    "docling>=2.134.0",
+    "onnxruntime>=1.31.1",  # motor de RapidOCR: el OCR de las páginas sin texto (lee español sin dependencias del sistema)
+]
+embed = [
+    # vectores (feature 046): solo los importa embeddings/adapters/, de forma diferida
+    "torch>=2.14.1",
+    "transformers>=5.20.2",
+]
+
+[dependency-groups]
+dev = ["mypy", "pytest", "pytest-cov", "ruff"]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["ingesta", "data", "chunking", "pipeline", "server", "common", "parsing", "embeddings", "llm", "consultas"]  # los paquetes en src/ no se llaman como el proyecto (prueba-chunking)
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # orden de imports
+    "UP",      # sintaxis moderna de Python
+    "B",       # bugbear
+    "SIM",     # simplificaciones
+    "C4",      # comprensiones
+    "PTH",     # pathlib en vez de os.path
+    "RUF",     # reglas propias de Ruff
+    "ANN",     # anotaciones de tipo obligatorias
+    "TID",     # imports prohibidos (ver banned-api)
+]
+# Caracteres intencionales en textos en español: × (1.5×RIQ) y – (rangos de años).
+allowed-confusables = ["×", "–"]
+
+# El ORM y el driver solo se usan en adapters/ (adaptadores de datos, features 008 y 012).
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sqlalchemy".msg = "solo adapters/ usa el ORM; el resto consume models.AdaptadorORM"
+"sqlite3".msg = "solo adapters/ accede a la base; el resto consume models.AdaptadorORM"
+# El sistema de archivos también es acceso a datos (feature 013): solo adapters/local_files.py lo toca.
+"pathlib".msg = "solo adapters/ toca el sistema de archivos; el resto consume models.AdaptadorArchivos"
+"shutil".msg = "solo adapters/ toca el sistema de archivos; el resto consume models.AdaptadorArchivos"
+"os".msg = "solo adapters/ toca el sistema de archivos; el resto consume models.AdaptadorArchivos"
+"stat".msg = "solo adapters/ toca el sistema de archivos; el resto consume models.AdaptadorArchivos"
+# El grafo (feature 015): solo data/adapters/ importa el driver.
+# La API HTTP (feature 016): solo los paquetes api/ importan el framework y el servidor.
+"fastapi".msg = "solo api/ importa FastAPI; el dominio no sabe que hay HTTP"
+"starlette".msg = "solo api/ importa el framework web"
+"uvicorn".msg = "solo api/server.py arranca el servidor"
+"neo4j".msg = "solo data/adapters/ importa el driver; el resto consume data.models.AdaptadorGrafo"
+# Chunking (feature 021): Docling y el cliente HTTP solo en chunking/adapters/.
+"docling".msg = "solo chunking/adapters/ importa Docling (de forma diferida); el resto consume chunking.models.Converter"
+"docling_core".msg = "solo chunking/adapters/ importa Docling; el resto consume chunking.models.Converter"
+"httpx".msg = "solo los adapters/ hablan HTTP con otros módulos; el resto consume sus puertos (models/ports.py)"
+
+[tool.ruff.lint.per-file-ignores]
+"src/ingesta/adapters/**" = ["TID251"]
+"src/data/adapters/**" = ["TID251"]
+"src/ingesta/api/**" = ["TID251"]
+"src/data/api/**" = ["TID251"]
+"src/chunking/adapters/**" = ["TID251"]
+"src/chunking/api/**" = ["TID251"]
+"src/pipeline/adapters/**" = ["TID251"]
+"src/pipeline/api/**" = ["TID251"]
+"src/parsing/adapters/**" = ["TID251"]
+"src/parsing/api/**" = ["TID251"]
+"src/embeddings/adapters/**" = ["TID251"]
+"src/embeddings/api/**" = ["TID251"]
+"src/llm/adapters/**" = ["TID251"]
+"src/llm/api/**" = ["TID251"]
+"src/consultas/adapters/**" = ["TID251"]
+"src/consultas/api/**" = ["TID251"]
+"src/common/**" = ["TID251"]  # infraestructura compartida (feature 033): httpx y FastAPI; no importa módulos (lo revisa un test)
+"src/server/**" = ["TID251"]  # raíz de composición: importa FastAPI, uvicorn y todos los módulos
+"tests/**" = ["TID251"]  # los tests arman clientes httpx con MockTransport (feature 026)
+
+[tool.ruff.lint.isort]
+known-first-party = ["ingesta", "data", "chunking", "pipeline", "server", "parsing", "embeddings", "llm", "consultas"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+mypy_path = "src:tests"  # tests: fakes.py, the fakes a test names as a type (feature 042)
+python_version = "3.12"
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["tests"]  # fakes.py
+markers = [
+    "integration: un escenario de varios pasos o módulos (no un comportamiento de una función)",
+    "docling: usa Docling de verdad; se omite sin el extra chunk o parse (o sin sus modelos en caché)",
+    "neo4j: usa un Neo4j de verdad; se omite sin la variable NEO4J_TEST_URL",
+    "embed: usa el modelo de vectores de verdad; se omite sin el extra embed o sin el modelo en .cache/embeddings",
+    "ollama: usa un Ollama de verdad; se omite sin la variable OLLAMA_TEST_URL (o sin el modelo qwen2.5:0.5b)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 75  # piso de CI: lo medido sin Docling menos un margen; no se baja
+skip_empty = true

@@ -50,6 +50,7 @@ module-name = ["ingesta", "data", "chunking", "pipeline", "server", "common", "p
 line-length = 120
 target-version = "py312"
 src = ["src"]
+extend-exclude = ["src/labs"]  # el borrador de otra persona: no es parte del servidor ni sigue sus reglas
 
 [tool.ruff.lint]
 select = [

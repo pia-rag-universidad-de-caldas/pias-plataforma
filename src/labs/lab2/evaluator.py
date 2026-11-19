@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from typing import Any
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
-from chunking.adapters.strategies.tools import Models
+from chunking.adapters.strategies.tools import Models  # type: ignore[import-untyped]
 
 import httpx
 
@@ -49,7 +50,7 @@ def evaluate_length(text: str, tokenizer_name: str, max_tokens: int) -> dict[str
         "issues": issues
     }
 
-def evaluate_duplicates(texts: list[str]) -> dict[str, object]:
+def evaluate_duplicates(texts: list[object]) -> dict[str, object]:
     if not texts:
         return {
         "total_chunks": 0,
@@ -123,13 +124,16 @@ def evaluate_document(chunks: list[dict[str, object]], tokenizer_name: str, max_
         "chunk_results": list_chunks
     }
 
-def get_experiment_chunks(experiment_id: str, sha256: str):
+def get_experiment_chunks(experiment_id: str, sha256: str) -> Any:
     route = f"{BASE_URL}/experiments/phase/02/{experiment_id}/documents/{sha256}/chunks"
     response = httpx.get(route)
     response.raise_for_status()
     return response.json()
 
-def save_experiment_scores(experiment_id: str, scores: dict):
+
+def save_experiment_scores(
+    experiment_id: str,
+    scores: dict[str, object],) -> Any:
     route = f"{BASE_URL}/experiments/phase/02/{experiment_id}/scores"
     response = httpx.post(route, json=scores)
     response.raise_for_status()

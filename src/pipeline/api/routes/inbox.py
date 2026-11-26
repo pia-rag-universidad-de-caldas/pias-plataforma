@@ -1,0 +1,38 @@
+"""The actors: what waits for them (/inbox) and their callback_url (/actors)."""
+
+from fastapi import APIRouter
+
+from pipeline.api.dependencies import Actors, CallbackHosts, Runner, Store
+from pipeline.api.executor import item_json
+from pipeline.api.schemas import ActorBody, ActorView
+from pipeline.domain.callbacks import url_problem
+from pipeline.models import Actor, InvalidRequest, JsonObject
+
+router = APIRouter(tags=["actors"])
+
+
+@router.get("/inbox")
+def inbox(store: Store, runner: Runner, actor: str | None = None) -> list[JsonObject]:
+    """The stages waiting for `actor` (every actor if not given), oldest first: run, stage, iteration, the
+    experiment to look at in chunking, the batch, the artifacts and the route to answer to. The store reads only
+    waiting runs, using Neo4j's status index instead of scanning the full history."""
+    items = [runner.inbox_item(r) for r in store.waiting_runs(actor)]
+    found = [i for i in items if i is not None]
+    return [item_json(i) for i in sorted(found, key=lambda i: i.since)]
+
+
+@router.get("/actors")
+def list_actors(actors: Actors) -> list[ActorView]:
+    return [ActorView(a.name, a.callback_url) for a in actors.all()]
+
+
+@router.put("/actors/{name}")
+def put_actor(actors: Actors, hosts: CallbackHosts, name: str, body: ActorBody) -> ActorView:
+    """Registers the actor; with `callback_url`, it gets a POST (what /inbox lists) when a stage starts waiting for
+    it. Kept in memory: it is configuration of this server. The URL must be http or https and its host one of this
+    machine's or of PIPELINE_CALLBACK_HOSTS (comma separated), or it is a 422."""
+    problem = url_problem(body.callback_url, hosts) if body.callback_url else None
+    if problem is not None:
+        raise InvalidRequest(f"callback_url: {problem}")
+    actor = actors.put(Actor(name, body.callback_url or None))
+    return ActorView(actor.name, actor.callback_url)

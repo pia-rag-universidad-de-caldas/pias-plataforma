@@ -1,0 +1,59 @@
+# Conexión consultas → embeddings, data y llm (feature 048), de punta a punta: un documento chunkeado con ids
+# test-cons-* (sha 7e57c0...), sus vectores, la búsqueda, una pregunta y su chat. Sin el módulo llm (047), la pregunta
+# con contexto da 503 "llm is not answering" y no se guarda nada. Se puede repetir; al final se borra todo.
+
+@server = http://127.0.0.1:8000
+@data = {{server}}/data
+@sha = 7e57c00000000000000000000000000000000000000000000000000000000000
+
+### 1 · un documento como lo deja chunking: JSON → SECCION → FRAGMENTOS
+POST {{data}}/batch
+Content-Type: application/json
+
+{
+  "nodes": [
+    {"label": "JSON", "id": "{{sha}}", "properties": {"estado": "parseado", "estado_chunking": "fragmentado"}},
+    {"label": "SECCION", "id": "{{sha}}:s0", "properties": {"orden": 0, "encabezados": ["Evaluación"]}},
+    {"label": "FRAGMENTOS", "id": "{{sha}}:0", "properties": {"indice": 0, "paginas": [3],
+      "texto": "La evaluación de Bases de Datos: dos parciales (60 %) y un proyecto (40 %).",
+      "texto_contextualizado": "Evaluación\nLa evaluación de Bases de Datos: dos parciales (60 %) y un proyecto (40 %)."}}
+  ],
+  "relationships": [
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "{{sha}}"}, "target": {"label": "SECCION", "id": "{{sha}}:s0"}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "{{sha}}:s0"}, "target": {"label": "FRAGMENTOS", "id": "{{sha}}:0"}}
+  ]
+}
+
+### 2 · embeberlo (esperar a "finished" con GET {{server}}/embeddings/runs/<id>)
+POST {{server}}/embeddings/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"]}
+
+### 3 · consultas → embeddings → data: el fragmento aparece con su puntaje
+POST {{server}}/consultas/search
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa Bases de Datos?", "k": 3}
+
+### 4 · la pregunta completa: → llm (503 sin el módulo 047) → data (CHAT, CONSULTA, RESPONDIDA_CON)
+# @name asked
+POST {{server}}/consultas/ask
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa Bases de Datos?"}
+
+### 5 · el chat guardado, con el fragmento citado
+GET {{server}}/consultas/chats/{{asked.response.body.$.chat}}
+
+### 6 · borrar lo de prueba: el chat (y sus consultas) y el documento (el índice queda: es el del modelo)
+DELETE {{server}}/consultas/chats/{{asked.response.body.$.chat}}
+
+###
+DELETE {{data}}/nodes/FRAGMENTOS/{{sha}}:0
+
+###
+DELETE {{data}}/nodes/SECCION/{{sha}}:s0
+
+###
+DELETE {{data}}/nodes/JSON/{{sha}}

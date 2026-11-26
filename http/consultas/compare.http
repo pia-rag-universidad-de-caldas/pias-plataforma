@@ -1,0 +1,70 @@
+# Consultas · destinos y comparaciones (feature 060): dónde se puede preguntar (lo oficial con cada modelo de
+# embeddings que tiene vectores, o un experimento de embeddings terminado) y una pregunta a hasta 4 paneles, cada uno
+# con su destino, su LLM y su k, guardada como una comparación. Los paneles corren en orden, de a uno.
+# Desde la terminal: prueba-chunking ask "pregunta" --model <modelo de embeddings>.
+
+@base = http://127.0.0.1:8000/consultas
+
+### targets · lo oficial por modelo (con cuántos documentos tienen sus vectores) y los experimentos terminados
+GET {{base}}/targets
+
+### search · lo oficial con otro modelo de embeddings (422 si embeddings no lo sirve; [] si no tiene vectores)
+POST {{base}}/search
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa el curso de Bases de Datos?", "against": {"embeddings_model": "BAAI/bge-m3"}}
+
+### against con las dos claves (o ninguna) → 422
+POST {{base}}/search
+Content-Type: application/json
+
+{"question": "a", "against": {"embeddings_model": "BAAI/bge-m3", "embeddings_experiment": "x"}}
+
+### compare · dos LLM sobre lo oficial con el modelo activo
+# @name compared
+POST {{base}}/compare
+Content-Type: application/json
+
+{
+  "question": "¿Cómo se evalúa el curso de Bases de Datos?",
+  "panels": [
+    {"label": "qwen 0.5b", "llm": {"model": "qwen2.5:0.5b"}},
+    {"label": "llama 8b", "llm": {"model": "llama3.1:8b", "temperature": 0.1}}
+  ]
+}
+
+### compare · el mismo LLM sobre lo oficial con dos modelos de embeddings
+POST {{base}}/compare
+Content-Type: application/json
+
+{
+  "question": "¿Cómo se evalúa el curso de Bases de Datos?",
+  "panels": [
+    {"label": "MiniLM"},
+    {"label": "bge-m3", "against": {"embeddings_model": "BAAI/bge-m3"}, "k": 8}
+  ]
+}
+
+### compare · un modelo que llm no admite → 422 antes de correr ningún panel
+POST {{base}}/compare
+Content-Type: application/json
+
+{"question": "a", "panels": [{}, {"llm": {"model": "gpt-9"}}]}
+
+### compare · cinco paneles → 422
+POST {{base}}/compare
+Content-Type: application/json
+
+{"question": "a", "panels": [{}, {}, {}, {}, {}]}
+
+### comparisons · la más nueva primero
+GET {{base}}/comparisons
+
+### comparisons/{id} · como la respondió POST /compare, con las fuentes de cada panel
+GET {{base}}/comparisons/{{compared.response.body.$.comparison}}
+
+### comparisons/{id} · borrarla (sus consultas con ella; los fragmentos quedan)
+DELETE {{base}}/comparisons/{{compared.response.body.$.comparison}}
+
+### comparisons/{id} · ya no existe → 404
+GET {{base}}/comparisons/{{compared.response.body.$.comparison}}

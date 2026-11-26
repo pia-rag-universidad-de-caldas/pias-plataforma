@@ -1,0 +1,84 @@
+# 043 · Experimentos con Docling
+
+**Estado:** propuesta (después de la 042: necesita el `DoclingDocument` guardado)
+
+Hoy hay dos formas de chunkear que no se parecen: las corridas de producción (`POST /chunking/runs`, el `HybridChunker`
+de Docling, directo al grafo oficial) y los experimentos de la fase 02 (siete estrategias nuestras sobre el `contenido`
+aplanado, con un `plan` de reglas por título o posición). Esta feature deja **una sola**: el experimento. Un
+experimento chunkea con los chunkers de Docling; se puntúa y se compara; y si se fija, sus chunks son el **documento**
+oficial.
+
+## Qué se configura
+
+Solo el chunker y el tamaño. Todo lo demás es fijo (abajo).
+
+| Campo | Valores | Por defecto | Con qué chunker |
+| --- | --- | --- | --- |
+| `chunker` | `hybrid`, `hierarchical`, `page` | `hybrid` | — |
+| `tokenizer` | los de `TOKENIZERS` | `TOKENIZER` | todos (cuenta los tokens de cada chunk) |
+| `max_tokens` | `MAX_TOKENS_RANGE` (16–8192) | `MAX_TOKENS` (512) | solo `hybrid` |
+| `merge_peers` | `true`/`false` | `true` | solo `hybrid` |
+
+- `hybrid`: chunks del tamaño justo; parte lo que no cabe en `max_tokens` y junta los chunks pequeños vecinos con los
+  mismos títulos.
+- `hierarchical`: un chunk por elemento del documento (párrafo, tabla, lista entera), sin límite de tamaño.
+- `page`: un chunk por página.
+- `max_tokens` o `merge_peers` con `hierarchical` o `page` → 422 (nunca se ignora un parámetro en silencio).
+
+## Qué queda fijo
+
+En `src/chunking/config/docling.py` (`CHUNKING_FIXED`, con `CHUNKING_VERSION`), junto a lo fijo del parseo (042).
+
+| Qué | Valor | Por qué |
+| --- | --- | --- |
+| Tablas | tripletas («fila, columna = valor» por celda), el serializador de chunking de Docling | cada trozo de una tabla se entiende solo, sin depender de su encabezado |
+| `repeat_table_header` | `false` | con tripletas cada celda ya lleva sus encabezados; repetirlos solo gasta tokens |
+| `omit_header_on_overflow` | no aplica | solo cuenta con `repeat_table_header` |
+| Encabezados y pies de página | fuera (solo la capa `body`) | son ruido repetido en cada página |
+| Imágenes | solo su pie de foto | no hay descripción de imágenes |
+| Formato (`**negrita**`, `_cursiva_`) | fuera | gasta tokens y mete ruido en el embedding |
+| Hipervínculos | dentro | la bibliografía de los PIAA los usa |
+| `merge_list_items` (`hierarchical`) | `true` | una lista es una idea; en `hybrid`, `merge_peers` ya las junta si caben |
+| `expand` (`TreeChunkExpander`) | apagado | puede pasar de `max_tokens` |
+| `always_emit_headings` | `false` | daría chunks con solo un título |
+| Títulos delante | siempre: se guarda `texto` y `texto_contextualizado` (`contextualize`), y los tokens y el tope de `max_tokens` se cuentan sobre el contextualizado | lo que se embebe es el contextualizado |
+
+Cambiar un valor fijo es subir `CHUNKING_VERSION`; queda en cada experimento, así que dos experimentos con versiones
+distintas no se confunden al comparar.
+
+## Rutas
+
+| Ruta | Qué hace |
+| --- | --- |
+| `POST /chunking/experiments` | chunkea una parte de ingesta (parseándola si hace falta); 202 en cola |
+| `GET /chunking/experiments[/{id}]`, `DELETE /chunking/experiments/{id}` | como hoy |
+| `GET /chunking/experiments/compare?ids=…` | como hoy |
+| `GET /chunking/experiments/{id}/documents[/{sha256}[/chunks]]` | resultados por documento y sus chunks |
+| `POST`/`GET`/`PUT`/`PATCH`/`DELETE /chunking/experiments/{id}/scores[/{score_id}]` | como hoy |
+| `POST /chunking/experiments/{id}/promote` | fija la configuración del experimento: chunkea con ella todo lo de ingesta, o la parte elegida, y reemplaza lo oficial |
+| `GET /chunking/promotions[/{id}]`, `DELETE /chunking/promotions/{id}` | estado de las fijaciones; sacar de la fila una en cola |
+| `GET /chunking/documents[/{sha256}[/chunks]]` | los documentos oficiales (lo fijado), como hoy |
+
+Cuerpo de `POST /chunking/experiments`:
+
+```json
+{
+  "name": "hybrid 256",
+  "description": "",
+  "ingesta": {"pages": {"from": 1, "to": 2}, "per_page": 20, "types": ["pdf"]},
+  "chunking": {"chunker": "hybrid", "tokenizer": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+               "max_tokens": 256, "merge_peers": true},
+  "simulate": false
+}
+```
+
+- `ingesta`: qué parte de los archivos aptos de `/ingesta/data`, el mismo selector que el parseo (042) y la fijación,
+  de una sola forma: `all`, `pages` + `per_page` (páginas del listado), filtros (`types`, `year`, `month`, `week`,
+  `code`) con `limit`, `sha256s`, o `from_experiment` (los mismos archivos de otro experimento, para comparar).
+  Obligatorio en un experimento: pensado para partes pequeñas.
+- Un archivo sin parseo oficial con la huella actual se parsea primero (configuración fija, 042) y ese parseo queda
+  como oficial: parsear no depende de la configuración de chunking.
+- `chunking` sin claves = todos los valores por defecto. Claves desconocidas → 422.
+- `simulate`: qué documentos entrarían y cuáles no se pueden chunkear, sin cortar nada.
+- Un fallo por documento no corta el experimento: queda con su error.
+

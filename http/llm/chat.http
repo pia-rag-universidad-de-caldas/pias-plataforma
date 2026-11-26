@@ -1,0 +1,45 @@
+# llm · chat (feature 047): mensajes → respuesta del modelo. Sincrónico, con timeout. Lo que no se envía (model,
+# temperature, num_ctx, max_tokens) sale de la configuración activa, y su prompt de sistema va primero si los mensajes
+# no traen uno. 503 si Ollama no responde o no tiene el modelo (con el `ollama pull` que lo arregla); 422 si no cabe.
+
+@base = http://127.0.0.1:8000/llm
+@model = qwen2.5:0.5b
+
+### chat · con la configuración activa
+POST {{base}}/chat
+Content-Type: application/json
+
+{"messages": [{"role": "user", "content": "Hola, ¿quién eres?"}]}
+
+### chat · con otro modelo y otros valores
+POST {{base}}/chat
+Content-Type: application/json
+
+{
+  "messages": [
+    {"role": "system", "content": "Responde en una sola frase."},
+    {"role": "user", "content": "¿Qué es un PIAA?"}
+  ],
+  "model": "{{model}}",
+  "temperature": 0,
+  "num_ctx": 2048,
+  "max_tokens": 64
+}
+
+### chat · imágenes (base64) con un modelo de visión
+POST {{base}}/chat
+Content-Type: application/json
+
+{"messages": [{"role": "user", "content": "¿Qué ves?", "images": ["iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="]}], "model": "qwen2.5vl:3b"}
+
+### chat · 422: imágenes con un modelo sin visión
+POST {{base}}/chat
+Content-Type: application/json
+
+{"messages": [{"role": "user", "content": "¿Qué ves?", "images": ["aGVsbG8="]}], "model": "{{model}}"}
+
+### chat · 422: una temperatura fuera de rango
+POST {{base}}/chat
+Content-Type: application/json
+
+{"messages": [{"role": "user", "content": "hola"}], "temperature": 5}

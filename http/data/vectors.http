@@ -1,0 +1,45 @@
+# Data · índices vectoriales y búsqueda (features 046 y 055). Los pide embeddings (el nombre, la propiedad y las
+# dimensiones salen de su modelo); data pone las reglas: nombre vec_[a-z0-9_], solo FRAGMENTOS o EXP_EMBED, propiedad
+# embedding_[a-z0-9_] (una por modelo: embedding_<modelo>_<dim>), coseno.
+
+@base = http://127.0.0.1:8000/data
+@index = vec_test_vectors_3
+
+### vectors · crear el índice si falta (idempotente)
+PUT {{base}}/vectors/indexes/{{index}}
+Content-Type: application/json
+
+{"label": "FRAGMENTOS", "property": "embedding_test_3", "dimensions": 3}
+
+### vectors · ver el índice
+GET {{base}}/vectors/indexes/{{index}}
+
+### vectors · 409: el mismo nombre con otras dimensiones
+PUT {{base}}/vectors/indexes/{{index}}
+Content-Type: application/json
+
+{"label": "FRAGMENTOS", "property": "embedding_test_3", "dimensions": 4}
+
+### vectors · 422: una etiqueta que no es de chunks
+PUT {{base}}/vectors/indexes/{{index}}
+Content-Type: application/json
+
+{"label": "JSON", "property": "embedding_test_3", "dimensions": 3}
+
+### vectors · buscar (solo FRAGMENTOS de JSON con estado_chunking fragmentado)
+POST {{base}}/vectors/search
+Content-Type: application/json
+
+{"index": "{{index}}", "vector": [1.0, 0.0, 0.0], "k": 5}
+
+### vectors · 422: un vector de otras dimensiones
+POST {{base}}/vectors/search
+Content-Type: application/json
+
+{"index": "{{index}}", "vector": [1.0]}
+
+### vectors · borrar el índice; los vectores quedan en sus nodos
+DELETE {{base}}/vectors/indexes/{{index}}
+
+### vectors · borrar el índice y su propiedad de cada nodo (los vectores de ese modelo se van)
+DELETE {{base}}/vectors/indexes/{{index}}?drop_property=true

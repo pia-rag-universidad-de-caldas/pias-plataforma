@@ -1,0 +1,13 @@
+# Ruff for src/parsing/ (feature 042): the root pyproject.toml plus the ban on importing the other modules.
+# Modules never talk to each other: parsing only reads and writes in data, over HTTP; only src/server/ composes them.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.extend-banned-api]
+"ingesta".msg = "parsing must not import ingesta: it reads the files from data (feature 042); only server/ composes them"
+"data".msg = "parsing must not import data: modules talk over HTTP (feature 020); only server/ composes them"
+"chunking".msg = "parsing must not import chunking: modules never talk to each other (feature 042)"
+"server".msg = "parsing must not import server: modules talk over HTTP (feature 020); only server/ composes them"
+"pipeline".msg = "parsing must not import pipeline: only the pipeline orchestrates (feature 042)"
+"embeddings".msg = "parsing must not import embeddings: modules talk over HTTP (feature 046); only server/ composes them"
+"llm".msg = "parsing must not import llm: modules talk over HTTP (feature 047); only server/ composes them"
+"consultas".msg = "parsing must not import consultas: modules talk over HTTP (feature 048); only server/ composes them"

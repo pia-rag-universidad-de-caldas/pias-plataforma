@@ -1,0 +1,59 @@
+# Data · documentos por su curso (feature 057): los JSON cuyo curso (actividad, codigo_actividad, que embeddings lee
+# del encabezado del PIAA al embeber) se parece a las palabras de un texto. Solo lee. consultas lo usa para buscar solo
+# en el curso que nombra una pregunta.
+
+@base = http://127.0.0.1:8000/data
+
+### por el nombre del curso
+POST {{base}}/documents/search
+Content-Type: application/json
+
+{"text": "¿Qué evalúa el curso Psicología de la percepción?", "k": 10}
+
+### por su código
+POST {{base}}/documents/search
+Content-Type: application/json
+
+{"text": "G6K0346"}
+
+### solo los chunks de unos documentos (vector de POST /embeddings/vectors; index el de su modelo)
+POST {{base}}/vectors/search
+Content-Type: application/json
+
+{"index": "vec_fragmentos_paraphrase_multilingual_minilm_l12_v2_384", "vector": [0.0], "k": 5, "sha256s": ["<sha256>"]}
+
+### k fuera de rango (422)
+POST {{base}}/documents/search
+Content-Type: application/json
+
+{"text": "cálculo", "k": 0}
+
+### select (062) · todos los parseados (JSON parseado o parcial), de a 500 por página de respuesta
+POST {{base}}/documents/select
+Content-Type: application/json
+
+{"universe": "parsed", "files": {"all": true}}
+
+### select · una muestra de 300 PDF de 2024 que se repite (seed)
+POST {{base}}/documents/select
+Content-Type: application/json
+
+{"universe": "parsed", "files": {"sample": 300, "seed": 7, "types": ["pdf"], "year": 2024}}
+
+### select · páginas 1–2 de 20 de los chunkeados de marzo de 2024
+POST {{base}}/documents/select
+Content-Type: application/json
+
+{"universe": "chunked", "files": {"pages": {"from": 1, "to": 2}, "per_page": 20, "year": 2024, "month": 3}}
+
+### select · los parseados que un experimento de chunking todavía no tiene (404 si el experimento no existe)
+POST {{base}}/documents/select
+Content-Type: application/json
+
+{"universe": "parsed", "files": {"all": true}, "exclude_experiment": "<id de un experimento de chunking>"}
+
+### select · reglas: sha256s con filtros, month sin year, per_page sin pages... (422 con el motivo)
+POST {{base}}/documents/select
+Content-Type: application/json
+
+{"universe": "parsed", "files": {"sha256s": ["<sha256>"], "year": 2024}}

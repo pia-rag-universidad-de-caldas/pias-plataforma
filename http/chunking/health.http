@@ -1,0 +1,8 @@
+# Chunking · health (features 021 y 043).
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Servidor único: uv run prueba-chunking serve. Docs: http://127.0.0.1:8000/chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+
+### chunking · health: whether docling-core (uv sync --extra chunk) is installed and whether data answers
+GET {{chunking}}/health

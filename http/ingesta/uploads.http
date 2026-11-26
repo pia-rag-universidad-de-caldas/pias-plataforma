@@ -1,0 +1,59 @@
+# Ingesta · subir archivos a data/base/ (feature 049): lo que hará el front (052).
+# POST /uploads (multipart/form-data: uno o más `files` y un `code` de 6 dígitos; 000000 = sin PIAA) guarda cada
+# archivo en data/base/<año>/<mes>/<semana>/<code>/ de la fecha de subida (2026/11_Noviembre/Semana_02/023560/),
+# con el prefijo de fecha y hora que llevan los nombres del corpus, y responde por archivo: estado guardado,
+# ya_existe (el mismo sha256 ya está en el corpus o ya se subió: ruta dice dónde) o rechazado (motivo).
+# Solo pdf, doc y docx; nunca sobrescribe; el cuerpo, hasta --max-body-bytes del servidor (413 si no).
+# Subir NO ingesta: después, POST /pipeline/runs {"template": "produccion", "scope": "new"} (ver http/pipeline/).
+# La consola no envía archivos: se suben desde aquí, con curl o desde el front.
+# curl -F code=023560 -F files=@informe.pdf -F files=@otro.docx localhost:8000/ingesta/uploads
+# Para probar sin tocar el corpus real: serve --base <carpeta temporal> --memory <copia>.
+
+@base = http://127.0.0.1:8000/ingesta
+
+### uploads · subir un PDF (la ruta del archivo es relativa a este .http)
+POST {{base}}/uploads
+Content-Type: multipart/form-data; boundary=----subida
+
+------subida
+Content-Disposition: form-data; name="code"
+
+023560
+------subida
+Content-Disposition: form-data; name="files"; filename="informe.pdf"
+Content-Type: application/pdf
+
+< ./informe.pdf
+------subida--
+
+### uploads · un .txt se rechaza con su motivo; el código sigue siendo obligatorio
+POST {{base}}/uploads
+Content-Type: multipart/form-data; boundary=----subida
+
+------subida
+Content-Disposition: form-data; name="code"
+
+000000
+------subida
+Content-Disposition: form-data; name="files"; filename="notas.txt"
+Content-Type: text/plain
+
+estas notas no son un PIAA
+------subida--
+
+### uploads · un código que no es de 6 dígitos (422, no guarda nada)
+POST {{base}}/uploads
+Content-Type: multipart/form-data; boundary=----subida
+
+------subida
+Content-Disposition: form-data; name="code"
+
+12ab
+------subida
+Content-Disposition: form-data; name="files"; filename="a.pdf"
+
+%PDF
+------subida--
+
+### uploads · lo subido por la API, lo más nuevo primero
+GET {{base}}/uploads

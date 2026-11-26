@@ -1,0 +1,30 @@
+# Neo4j + Ollama for prueba-chunking (feature 054): one container per service, each its official image.
+# The console runs it (`docker compose -p prueba-chunking -f compose.yaml -f compose.<gpu>.yaml up -d <services>`) and
+# stops on exit only what it started. By hand:
+#   NEO4J_AUTH=neo4j/<clave> docker compose -f docker/compose.yaml -f docker/compose.amd.yaml up -d
+# NEO4J_AUTH goes by the environment only (never in the command line); it matters only when the database is created.
+name: prueba-chunking
+
+services:
+  neo4j:
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1}
+    environment:
+      - NEO4J_AUTH
+    ports:
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+    volumes:
+      - neo4j-data:/data
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama}  # CPU; compose.amd.yaml and compose.nvidia.yaml change it
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  neo4j-data:
+    name: ${NEO4J_VOLUME:-prueba-chunking-neo4j-data}  # the volume of the old standalone container: its data is kept
+  ollama:
+    name: ${OLLAMA_VOLUME:-prueba-chunking-ollama}

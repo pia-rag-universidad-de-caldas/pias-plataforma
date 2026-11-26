@@ -1,0 +1,73 @@
+# Pipeline · corrida de producción (feature 044): ingesta → parsing → chunking → embeddings, con las configuraciones
+# activas. Solo pasan ids entre módulos; cada uno guarda en data. Una segunda corrida no rehace nada.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j, la memoria de ingesta y los módulos parsing (Docling), chunking y embeddings. Docs: /pipeline/docs
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### produccion · solo lo nuevo (scope new, por defecto) (202)
+# @name run
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "name": "producción", "scope": "new"}
+
+### produccion · el estado: etapa y lo que dejó cada una (parseados, chunkeados, embebidos)
+GET {{pipeline}}/runs/{{run.response.body.run.id}}
+
+### produccion · todo el corpus parseado con las configuraciones activas de ahora (scope all) (202)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "name": "re-chunkear todo", "scope": "all"}
+
+### produccion · scope desconocido (422)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "scope": "algunos"}
+
+### produccion · solo un lote (056): los 100 primeros pdf aptos de ingesta, en partes de 20 por parsear → chunkear →
+# embeber. Simulado: responde el lote que congelaría (200), sin guardar nada
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "name": "lote", "files": {"pages": {"from": 1, "to": 1}, "per_page": 100, "types": ["pdf"]}, "part_size": 20, "simulate": true}
+
+### produccion · todo lo que falta, de a partes de 100 (202): lo primero queda consultable pronto; `parts` dice cuál va
+# @name parts
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "name": "por partes", "part_size": 100}
+
+### produccion · el avance por partes: parts[].status (pending/running/done/failed/cancelled) y records[].part
+GET {{pipeline}}/runs/{{parts.response.body.run.id}}
+
+### produccion · cancelar: no lanza nada más y la corrida del módulo en curso para tras el documento actual
+POST {{pipeline}}/runs/{{parts.response.body.run.id}}/cancel
+
+### produccion · part_size con el laboratorio, o files con una plantilla que no los lee (422)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "laboratorio", "files": {"all": true}, "part_size": 10}
+
+### produccion · scope all no va por partes (422)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "produccion", "scope": "all", "part_size": 10}
+
+### produccion · cancelar (409 si ya terminó; corta también la corrida del módulo en curso) / reanudar una fallida
+# o interrumpida (por partes: sigue en la parte a medias, las terminadas no se repiten)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/cancel
+
+###
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/resume
+
+### runs · las terminadas
+GET {{pipeline}}/runs?status=done
+
+### health · si ingesta, parsing, chunking, embeddings y data responden
+GET {{pipeline}}/health

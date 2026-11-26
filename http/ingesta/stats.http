@@ -1,0 +1,53 @@
+# Ingesta · /stats: las estadísticas de la memoria, completas o por sección.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Servidor único: uv run prueba-chunking serve (feature 020). Docs: http://127.0.0.1:8000/ingesta/docs
+
+@base = http://127.0.0.1:8000/ingesta
+
+### stats · todas las secciones a la vez (~700 KB)
+GET {{base}}/stats
+
+### stats · estadísticas básicas (totales de archivos, bytes, códigos y tipos)
+GET {{base}}/stats/summary
+
+### stats · tipos y distribución de pesos de cada uno
+GET {{base}}/stats/types
+
+### stats · un tipo: pesos, archivos y bytes por año, copias y vacíos
+GET {{base}}/stats/types/pdf
+
+### stats · los tipos poco frecuentes (agrupa dice cuáles reúne)
+GET {{base}}/stats/types/otros
+
+### stats · tipo agrupado en otros (404 que lo indica)
+GET {{base}}/stats/types/png
+
+### stats · por año y comparación entre años
+GET {{base}}/stats/years
+
+### stats · un año: por tipo, por mes y crecimiento frente al anterior
+GET {{base}}/stats/years/2024
+
+### stats · año sin archivos (404)
+GET {{base}}/stats/years/1999
+
+### stats · duplicados por contenido
+GET {{base}}/stats/duplicates
+
+### stats · solo los 5 grupos que más ocupan
+GET {{base}}/stats/duplicates?limit=5
+
+### stats · vacíos o casi vacíos
+GET {{base}}/stats/empty
+
+### stats · los 10 códigos con más archivos
+GET {{base}}/stats/codes?limit=10
+
+### stats · PIAA repetidos por año (todos los años)
+GET {{base}}/stats/repeated
+
+### stats · PIAA repetidos de un año
+GET {{base}}/stats/repeated/2024
+
+### stats · embudo de limpieza (lo que queda apto para chunking)
+GET {{base}}/stats/cleanup

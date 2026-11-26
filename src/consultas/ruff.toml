@@ -1,0 +1,13 @@
+# Ruff for src/consultas/ (feature 048): the root pyproject.toml plus the ban on importing the other modules.
+# A consumer like the pipeline: it calls embeddings, llm and data over HTTP; only src/server/ composes them all.
+extend = "../../pyproject.toml"
+
+[lint.flake8-tidy-imports.extend-banned-api]
+"ingesta".msg = "consultas must not import ingesta: modules talk over HTTP; only server/ composes them"
+"data".msg = "consultas must not import data: modules talk over HTTP; only server/ composes them"
+"parsing".msg = "consultas must not import parsing: modules talk over HTTP; only server/ composes them"
+"chunking".msg = "consultas must not import chunking: modules talk over HTTP; only server/ composes them"
+"embeddings".msg = "consultas must not import embeddings: modules talk over HTTP; only server/ composes them"
+"llm".msg = "consultas must not import llm: modules talk over HTTP; only server/ composes them"
+"pipeline".msg = "consultas must not import pipeline: modules talk over HTTP; only server/ composes them"
+"server".msg = "consultas must not import server: modules talk over HTTP; only server/ composes them"

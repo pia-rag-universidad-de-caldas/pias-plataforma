@@ -1,0 +1,114 @@
+# Chunking · experimentos (feature 043): chunkear documentos YA PARSEADOS con una configuración, aparte de lo oficial.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere docling-core (uv sync --extra chunk) y Neo4j. Usa respuestas anteriores (# @name, sintaxis de REST Client).
+# Escribe solo etiquetas de experimentos (EXPERIMENTO, EXP_SECCION, EXP_CHUNK): los SECCION/FRAGMENTOS oficiales no se
+# tocan. Chunking no elige documentos: se le dan los sha256 (los JSON que dejó parsing). Docs: /chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+@data = http://127.0.0.1:8000/data
+
+### data · los documentos parseados: de aquí salen los sha256 (el id de cada JSON)
+# @name parsed
+GET {{data}}/nodes/JSON?page=1&per_page=2
+
+### experiments · simulate: cuáles entrarían y cuáles no están parseados (200; no guarda nada)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "simulacion", "sha256s": ["{{parsed.response.body.nodes[0].id}}"], "simulate": true}
+
+### experiments · hybrid de 126 tokens (lo de defecto): 202, corre en segundo plano
+# @name hybrid
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hybrid 126", "sha256s": ["{{parsed.response.body.nodes[0].id}}", "{{parsed.response.body.nodes[1].id}}"],
+ "chunking": {"chunker": "hybrid", "max_tokens": 126, "merge_peers": true}}
+
+### experiments · los mismos documentos, un chunk por elemento
+# @name hierarchical
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hierarchical", "from_experiment": "{{hybrid.response.body.id}}", "chunking": {"chunker": "hierarchical"}}
+
+### experiments · todo el corpus (059), simulate: solo cuántos JSON parseados entrarían (`total`; `documents` vacío)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "todo", "all": true, "simulate": true}
+
+### experiments · todo el corpus (059): entran todos los JSON parseados que data tenga cuando le llega el turno
+# @name every
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "hybrid 126 todo", "all": true, "chunking": {"chunker": "hybrid", "max_tokens": 126}}
+
+### experiments · el de todo el corpus dice `all: true`
+GET {{chunking}}/experiments/{{every.response.body.id}}
+
+### experiments · sha256s junto con all: 422 (exactamente uno de sha256s, from_experiment y all)
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "mal", "all": true, "sha256s": ["{{parsed.response.body.nodes[0].id}}"]}
+
+### experiments · max_tokens con un chunker que no lo usa: 422
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "mal", "sha256s": ["{{parsed.response.body.nodes[0].id}}"], "chunking": {"chunker": "page", "max_tokens": 64}}
+
+### experiments · uno sin parsear: 409, «parse them first»
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "sin parseo", "sha256s": ["0000000000000000000000000000000000000000000000000000000000000000"]}
+
+### experiments · estado y resultados (repetir hasta "finished"); `chunked` = los sha256 chunkeados
+GET {{chunking}}/experiments/{{hybrid.response.body.id}}
+
+### data · los chunks del experimento (lo guardado se lee en data)
+GET {{data}}/nodes/EXPERIMENTO/{{hybrid.response.body.id}}/relationships
+
+### experiments · su configuración pasa a ser la activa (no chunkea nada: eso es POST /runs)
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/apply
+
+### experiments · retomar uno partial, failed o interrupted: solo los documentos que no alcanzó, con su configuración
+# (uno de todo el corpus vuelve a tomar los JSON parseados cuando le llega el turno y salta los ya chunkeados)
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/resume
+
+### experiments · todos, el más nuevo primero
+GET {{chunking}}/experiments
+
+### documents (062) · simulate: qué entraría (added), qué ya tenía (already) y qué no está parseado (unparsed)
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/documents
+Content-Type: application/json
+
+{"sha256s": ["{{parsed.response.body.nodes[1].id}}"], "simulate": true}
+
+### documents · agregar: chunkea lo nuevo y lo pendiente con la configuración del experimento (202; 409 si corre o
+# no hay nada nuevo). Su vista suma una de `selections`.
+POST {{chunking}}/experiments/{{hybrid.response.body.id}}/documents
+Content-Type: application/json
+
+{"sha256s": ["{{parsed.response.body.nodes[1].id}}"]}
+
+### experiments · fit (062): cada chunk cabe en los dos tokenizadores con su presupuesto (solo hybrid; no con
+# tokenizer ni max_tokens). Los presupuestos salen de GET /embeddings/models (default_passage_budget).
+POST {{chunking}}/experiments
+Content-Type: application/json
+
+{"name": "minilm + e5", "sha256s": ["{{parsed.response.body.nodes[0].id}}"],
+ "chunking": {"chunker": "hybrid", "fit": [
+   {"tokenizer": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "max_tokens": 126},
+   {"tokenizer": "intfloat/multilingual-e5-base", "max_tokens": 507}]}}
+
+### experiments · borrar uno (sus EXP_DOCUMENTO, EXP_SECCION, EXP_CHUNK y EXP_EMBED; los JSON quedan)
+# 409 si un experimento de embeddings lo usa (se borra antes: DELETE /embeddings/experiments/{id}) o si una corrida
+# del pipeline lo enlaza (PIPE_USA); en ese caso, ?force=true lo borra igual y esa corrida ya no se puede guardar.
+DELETE {{chunking}}/experiments/{{hierarchical.response.body.id}}
+
+### experiments · borrar uno aunque una corrida del pipeline lo enlace
+DELETE {{chunking}}/experiments/{{hierarchical.response.body.id}}?force=true

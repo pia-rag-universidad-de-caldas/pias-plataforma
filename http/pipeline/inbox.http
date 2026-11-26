@@ -1,0 +1,25 @@
+# Pipeline · bandeja y actores (feature 044): lo que espera a `lab`, el único actor (el laboratorio).
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+
+@pipeline = http://127.0.0.1:8000/pipeline
+
+### inbox · lo que espera a lab: corrida, etapa, iteración, experimentos de chunking y de embeddings, lote, ruta
+GET {{pipeline}}/inbox?actor=lab
+
+### inbox · todo lo que espera
+GET {{pipeline}}/inbox
+
+### actors · registrar el aviso de lab (POST con lo mismo que /inbox cuando una etapa lo espera)
+PUT {{pipeline}}/actors/lab
+Content-Type: application/json
+
+{"callback_url": "http://127.0.0.1:9000/lab/hook"}
+
+### actors · uno que no se puede usar (422)
+PUT {{pipeline}}/actors/lab
+Content-Type: application/json
+
+{"callback_url": "http://169.254.169.254/latest/meta-data"}
+
+###
+GET {{pipeline}}/actors

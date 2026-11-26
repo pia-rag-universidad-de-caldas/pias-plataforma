@@ -1,0 +1,45 @@
+# Data · avance (features 042 y 043): cuántos archivos están parseados y cuántos documentos chunkeados, y cuáles
+# faltan. Solo lee. Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una).
+
+@base = http://127.0.0.1:8000/data
+
+### parseo · de los RAW vigentes: hechos, parciales, con error, nunca parseados, y los sha256 que faltan
+GET {{base}}/progress/parsing?per_page=50
+
+### parseo · con la huella actual (la de GET /parsing/config): uno con otra huella cuenta como faltante
+GET {{base}}/progress/parsing?fingerprint=<fingerprint>
+
+### parseo · los ya parseados
+GET {{base}}/progress/parsing?list=done
+
+### chunking · de los JSON parseados: con chunks, con error, nunca chunkeados, y los sha256 que faltan
+GET {{base}}/progress/chunking
+
+### chunking · los que ya tienen chunks
+GET {{base}}/progress/chunking?list=done&page=1&per_page=50
+
+### chunking · todos los JSON parseados, hechos o no (059: lo que toma un experimento de todo el corpus)
+GET {{base}}/progress/chunking?list=all&page=1&per_page=50
+
+### chunking · con la huella de la configuración activa (la de GET /chunking/config): uno chunkeado con otra, o sobre un
+# parseo anterior, cuenta como faltante. Es lo que toma POST /chunking/runs sin sha256s
+GET {{base}}/progress/chunking?fingerprint=<fingerprint>
+
+### embeddings (057) · de los JSON chunkeados: con los vectores del modelo sobre sus chunks de ahora, y los que faltan.
+# property es la vector_property de GET /embeddings/config. Es lo que toma POST /embeddings/runs sin sha256s
+GET {{base}}/progress/embeddings?property=embedding_paraphrase_multilingual_minilm_l12_v2_384
+
+### embeddings · los ya embebidos con ese modelo
+GET {{base}}/progress/embeddings?property=embedding_paraphrase_multilingual_minilm_l12_v2_384&list=done
+
+### embeddings · sin property, o una que no es de vectores (422)
+GET {{base}}/progress/embeddings
+
+### una lista que no existe (422)
+GET {{base}}/progress/chunking?list=nope
+
+### experiment-embeddings (062) · lo chunkeado de su experimento de chunking sin vectores de ese experimento de embeddings
+GET {{base}}/progress/experiment-embeddings?experiment=<id de un experimento de embeddings>
+
+### experiment-embeddings · uno que no existe (404)
+GET {{base}}/progress/experiment-embeddings?experiment=no-existe

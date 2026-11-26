@@ -1,0 +1,78 @@
+# Pipeline · experimentos (feature 062): data dice qué documentos están parseados y la selección congela cuántos y
+# cuáles; van a un experimento de chunking nuevo (experiment) o se agregan a uno que ya existe (extend: solo los que
+# no tenía); data dice cuándo terminó el chunking; embeddings embebe sus chunks con cada modelo (uno por modelo: si ese
+# experimento ya tiene uno de ese modelo, lo continúa). official: sin chunking, los FRAGMENTOS oficiales con cada
+# modelo, al lado del activo.
+# Reglas de files: exactamente uno de all / pages (+ per_page) / sha256s / sample (+ seed) / from_run; los filtros
+# (types, year, month con year, week con month, code) van con all, pages o sample. Cada modelo debe caber en los chunks
+# (con experiment se arma `fit`: cada tokenizador con su presupuesto); si no, 422 antes de lanzar.
+# Requiere Neo4j y los módulos data, chunking y embeddings. Usa respuestas anteriores.
+
+@pipeline = http://127.0.0.1:8000/pipeline
+@minilm = sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+### experimentos · simulate: el lote, y qué haría con cada modelo (200; no guarda nada)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "template": "experimentos",
+  "files": {"sample": 300, "seed": 7, "types": ["pdf"], "year": 2024},
+  "params": {
+    "chunkear": {"experiment": {"name": "hybrid 126 · 2024", "chunking": {"chunker": "hybrid", "max_tokens": 126}}},
+    "embeber": {"models": ["{{minilm}}", "BAAI/bge-m3"]}
+  },
+  "simulate": true
+}
+
+### experimentos · uno nuevo con dos modelos (202)
+# @name run
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "template": "experimentos",
+  "name": "bge vs minilm, 2024",
+  "files": {"sample": 300, "seed": 7, "types": ["pdf"], "year": 2024},
+  "params": {
+    "chunkear": {"experiment": {"name": "hybrid 126 · 2024", "chunking": {"chunker": "hybrid", "max_tokens": 126}}},
+    "embeber": {"models": ["{{minilm}}", "BAAI/bge-m3"]}
+  }
+}
+
+### experimentos · repetir hasta `done` (o `failed`: resume)
+GET {{pipeline}}/runs/{{run.response.body.run.id}}
+
+### experimentos · agregar lo que falta de 2024 al mismo experimento y continuar sus modelos
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{
+  "template": "experimentos",
+  "files": {"all": true, "year": 2024},
+  "params": {
+    "chunkear": {"extend": "{{run.response.body.run.artifacts.experimento_chunking}}"},
+    "embeber": {"models": ["{{minilm}}"]}
+  }
+}
+
+### experimentos · lo oficial con otro modelo, al lado del activo
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "experimentos", "files": {"all": true}, "params": {"chunkear": {"official": true}, "embeber": {"models": ["intfloat/multilingual-e5-base"]}}}
+
+### experimentos · un modelo que no cabe en los chunks (422)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "experimentos", "params": {"chunkear": {"official": true}, "embeber": {"models": ["BAAI/bge-m3"]}}, "simulate": true}
+
+### experimentos · files mal armado (422: `seed` solo va con `sample`)
+POST {{pipeline}}/runs
+Content-Type: application/json
+
+{"template": "experimentos", "files": {"all": true, "seed": 7}, "params": {"chunkear": {"official": true}}, "simulate": true}
+
+### experimentos · continuar una corrida a medias (vuelve a chunkear: resume del experimento; embeber: continúa cada modelo)
+POST {{pipeline}}/runs/{{run.response.body.run.id}}/resume

@@ -1,0 +1,10 @@
+# Procesos de chunking (features 039 y 045): corridas y experimentos; cuántos en cola, cuánto llevan, con qué
+# chunker, cuánto les falta. En vivo: el WebSocket ws://localhost:8000/chunking/processes/ws manda lo mismo cada vez
+# que cambia.
+@base = http://localhost:8000
+
+### Todo chunking
+GET {{base}}/chunking/processes
+
+### Lo que sigue vivo
+GET {{base}}/chunking/processes?state=running&state=queued

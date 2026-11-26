@@ -1,0 +1,20 @@
+# Conexiones entre módulos · ¿se ven entre sí?
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+#
+# Los módulos no se importan: se llaman por HTTP al mismo servidor (feature 020). Estas peticiones comprueban que cada
+# camino responde. Con Neo4j: NEO4J_PASSWORD=... uv run prueba-chunking serve; sin él, data sale "unavailable".
+
+@host = http://127.0.0.1:8000
+
+### conexiones · el servidor consulta cada módulo EN PROCESO (no prueba HTTP entre módulos)
+GET {{host}}/health
+
+### conexiones · chunking → data POR HTTP (self_url): "data" debe dar "ok" (chunking solo habla con data, 043)
+GET {{host}}/chunking/health
+
+### conexiones · el extremo que chunking consulta
+GET {{host}}/data/health
+
+### conexiones · ingesta, por su cuenta
+GET {{host}}/ingesta/health
+

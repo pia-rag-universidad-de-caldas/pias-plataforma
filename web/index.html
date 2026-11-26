@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consultas PIAA</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="src/main.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <h1>Consultas PIAA</h1>
+      <nav>
+        <a href="#chat">Chat</a>
+        <a href="#comparar">Comparar LLMs</a>
+        <a href="#carga">Carga de documentos</a>
+      </nav>
+      <span id="health" class="dot" title="Revisando el servidor…"></span>
+      <button id="open-settings" type="button" class="link" title="URL del servidor y token">⚙ Ajustes</button>
+    </header>
+    <div id="notice" class="notice" role="alert"></div>
+    <main>
+      <div id="chat" class="screen chat-screen"></div>
+      <div id="comparar" class="screen compare-screen" hidden></div>
+      <div id="carga" class="screen upload-screen" hidden></div>
+    </main>
+    <dialog id="settings">
+      <form method="dialog">
+        <h2>Ajustes</h2>
+        <label>URL del servidor
+          <input name="apiBase" type="url" placeholder="vacía: este mismo servidor" />
+        </label>
+        <label>Token del cliente (051)
+          <input name="token" type="password" autocomplete="off" placeholder="vacío: sin token" />
+        </label>
+        <p class="small muted">Se guardan en este navegador. Otro servidor necesita CORS (ver web/README.md).</p>
+        <div class="row">
+          <button value="cancel">Cancelar</button>
+          <button value="save" class="primary">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+    <noscript>Esta página necesita JavaScript.</noscript>
+  </body>
+</html>

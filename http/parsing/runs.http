@@ -1,0 +1,55 @@
+# Parsing · corridas (feature 042): parsea exactamente los sha256 que se le dan, leídos de sus RAW en data, con la
+# configuración fija (GET /parsing/config), y deja PIAA -[:ES]-> JSON -[:VIENE_DE]-> RAW en data. Salta lo ya parseado
+# con la misma huella (redo lo rehace) y un parcial sigue desde sus páginas pendientes. Una a la vez: las demás en cola.
+# Lo parseado se lee en data: GET /data/nodes/JSON/{sha256} (el DoclingDocument va en `documento`: gzip + base64).
+
+@base = http://127.0.0.1:8000/parsing
+@sha = 0000000000000000000000000000000000000000000000000000000000000000
+
+### runs · simular: qué parsearía, qué saltaría, qué reanudaría y qué no está en data (no convierte ni escribe)
+# @name simulated
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"], "simulate": true}
+
+### runs · parsear (202; en cola)
+# @name run
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"]}
+
+### runs · parsear de nuevo aunque ya esté con la misma huella
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"], "redo": true}
+
+### runs · estado, avance, cada documento y `parsed` (los sha256 que quedaron con JSON): repetir hasta "finished"
+GET {{base}}/runs/{{run.response.body.$.id}}
+
+### runs · todas, también las de antes de reiniciar el servidor, la más nueva primero
+GET {{base}}/runs
+
+### runs · sacar de la fila una corrida en cola (409 si ya corre o terminó)
+DELETE {{base}}/runs/{{run.response.body.$.id}}
+
+### runs · cancelar (056): en la fila, sale; la que corre termina el documento actual y queda cancelled, con lo
+# parseado guardado (cancel_requested hasta entonces). 409 si ya terminó; una corrida nueva salta lo hecho
+POST {{base}}/runs/{{run.response.body.$.id}}/cancel
+
+### runs · sin sha256: todos los RAW vigentes que falten por parsear (con redo, todos los vigentes)
+POST {{base}}/runs
+Content-Type: application/json
+
+{}
+
+### runs · con una clave que no existe o con algo que no es un sha256 (422)
+POST {{base}}/runs
+Content-Type: application/json
+
+{"sha256s": ["nope"], "conversion": {}}
+
+### data · el JSON parseado y su RAW (sin el contenido)
+GET http://127.0.0.1:8000/data/nodes/RAW/{{sha}}?omit=contenido

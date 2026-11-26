@@ -1,0 +1,30 @@
+# llm · descargar y quitar modelos de Ollama (feature 047). La descarga va en segundo plano, una a la vez (202); se sigue
+# en GET /models/pulls/{id} o en GET /processes. Las descargas solo viven en memoria: Ollama guarda el modelo.
+
+@base = http://127.0.0.1:8000/llm
+@model = qwen2.5:0.5b
+
+### pull · descargar un modelo admitido (202; 503 si Ollama no responde; 422 si no está admitido)
+# @name pull
+POST {{base}}/models/pull
+Content-Type: application/json
+
+{"name": "{{model}}"}
+
+### pull · estado, paso de Ollama y bytes de la capa en curso: repetir hasta "finished"
+GET {{base}}/models/pulls/{{pull.response.body.$.id}}
+
+### pulls · las de esta sesión, la más nueva primero
+GET {{base}}/models/pulls
+
+### processes · la descarga en curso, como los demás procesos del servidor
+GET {{base}}/processes
+
+### pull · 422: un modelo que no está admitido
+POST {{base}}/models/pull
+Content-Type: application/json
+
+{"name": "gpt-4"}
+
+### delete · quitarlo de Ollama (204; 404 si no lo tiene; 409 si es el de la configuración activa)
+DELETE {{base}}/models/{{model}}

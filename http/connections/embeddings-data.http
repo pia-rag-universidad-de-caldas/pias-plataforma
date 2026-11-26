@@ -1,0 +1,51 @@
+# Conexión embeddings → data (feature 046), de punta a punta: un JSON chunkeado con ids test-emb-*, sus vectores y la
+# pregunta como vector. Se puede repetir; al final se borra todo.
+
+@data = http://127.0.0.1:8000/data
+@embeddings = http://127.0.0.1:8000/embeddings
+@sha = 7e57e3b000000000000000000000000000000000000000000000000000000000
+
+### 1 · un documento como lo deja chunking: JSON → SECCION → FRAGMENTOS
+POST {{data}}/batch
+Content-Type: application/json
+
+{
+  "nodes": [
+    {"label": "JSON", "id": "{{sha}}", "properties": {"estado": "parseado", "estado_chunking": "fragmentado"}},
+    {"label": "SECCION", "id": "{{sha}}:s0", "properties": {"orden": 0, "encabezados": ["Evaluación"]}},
+    {"label": "FRAGMENTOS", "id": "{{sha}}:0", "properties": {"indice": 0, "texto": "Dos parciales y un proyecto.",
+      "texto_contextualizado": "Evaluación\nDos parciales y un proyecto."}}
+  ],
+  "relationships": [
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "{{sha}}"}, "target": {"label": "SECCION", "id": "{{sha}}:s0"}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "{{sha}}:s0"}, "target": {"label": "FRAGMENTOS", "id": "{{sha}}:0"}}
+  ]
+}
+
+### 2 · embeberlo
+# @name run
+POST {{embeddings}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{sha}}"]}
+
+### 3 · esperar a "finished"
+GET {{embeddings}}/runs/{{run.response.body.$.id}}
+
+### 4 · el fragmento tiene su vector (embedding_<modelo>_<dim>); el JSON, su huella (huella_embedding_<modelo>_<dim>)
+GET {{data}}/nodes/JSON/{{sha}}
+
+### 5 · la pregunta como vector, con el índice del mismo modelo (buscar es de consultas: POST /consultas/search)
+POST {{embeddings}}/vectors
+Content-Type: application/json
+
+{"texts": ["¿Cómo se evalúa?"]}
+
+### 6 · borrar lo de prueba (el índice queda: es el del modelo)
+DELETE {{data}}/nodes/FRAGMENTOS/{{sha}}:0
+
+###
+DELETE {{data}}/nodes/SECCION/{{sha}}:s0
+
+###
+DELETE {{data}}/nodes/JSON/{{sha}}

@@ -1,0 +1,38 @@
+# Consultas · chats y configuración (feature 048). Cada pregunta queda en data:
+# (:CHAT)-[:GENERA]->(:CONSULTA)-[:RESPONDIDA_CON {puntaje, orden}]->(:FRAGMENTOS | :EXP_CHUNK).
+
+@base = http://127.0.0.1:8000/consultas
+
+### chats · el modificado más reciente primero
+# @name chats
+GET {{base}}/chats
+
+### chats · uno, con sus preguntas, respuestas y fragmentos citados
+GET {{base}}/chats/{{chats.response.body.$[0].id}}
+
+### chats · borrarlo (sus preguntas también; los fragmentos quedan)
+DELETE {{base}}/chats/{{chats.response.body.$[0].id}}
+
+### config · la activa (CONFIG_OFICIAL/consultas) o la de defecto
+GET {{base}}/config
+
+### config · cambiar solo lo enviado
+PATCH {{base}}/config
+Content-Type: application/json
+
+{"k": 8, "min_score": 0.4, "history": 2}
+
+### config · otro prompt (con {context} y {question}; lo que no se envía toma el de defecto)
+PUT {{base}}/config
+Content-Type: application/json
+
+{"prompt": "Usa solo el contexto y cita con [n].\n\n{context}\n\nPregunta: {question}"}
+
+### config · 422: un prompt sin sus marcas
+PUT {{base}}/config
+Content-Type: application/json
+
+{"prompt": "sin marcas"}
+
+### config · volver a la de defecto
+DELETE {{base}}/config

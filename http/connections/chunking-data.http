@@ -1,0 +1,84 @@
+# Conexiones · chunking → data (feature 043): lo que POST /chunking/runs escribe y lee en el grafo.
+# Se ejecutan con la extensión REST Client de VS Code ("Send Request" sobre cada una) o con httpyac.
+# Requiere Neo4j. Ejecutar de arriba a abajo: escribe un documento de prueba ("test-conn-*") con la MISMA forma que
+# escriben parsing (el JSON) y chunking (OfficialGraph.chunked / OfficialGraph.failed), lo lee, lo reprocesa y lo borra
+# (repetible). En una corrida real los ids son: JSON = sha256, SECCION = <sha256>:s<n>, FRAGMENTOS = <sha256>:<indice>.
+
+@graph = http://127.0.0.1:8000/data
+
+### 0 · el JSON como lo deja parsing (feature 042): chunking nunca escribe estas propiedades
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "nodes": [{"label": "JSON", "id": "test-conn-sha", "mode": "replace", "properties": {
+    "sha256": "test-conn-sha", "estado": "parseado", "fingerprint_parseo": "p1", "documento": "(base64 de gzip del DoclingDocument)"}}],
+  "relationships": []
+}
+
+### 1 · chunkear: las propiedades de chunking en el JSON (merge) y SECCION → FRAGMENTOS, reemplazando lo que colgaba
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-conn-sha"},
+  "nodes": [
+    {"label": "JSON", "id": "test-conn-sha", "mode": "merge", "properties": {
+      "chunker": "hybrid", "tokenizador": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "max_tokens": 126,
+      "fusionar_vecinos": true, "version_chunking": 1, "docling_core": "2.106.0", "estado_chunking": "fragmentado",
+      "error_chunking": null, "huella_chunking": "h1", "config_chunking": "c1", "parseo_chunkeado": "p1", "fragmentado_en": "2026-11-09T10:00:00-05:00", "fragmentos": 2,
+      "experimento_config": null}},
+    {"label": "SECCION", "id": "test-conn-sha:s0", "mode": "replace", "properties": {"orden": 0, "encabezados": ["OBJETIVOS"]}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:0", "mode": "replace", "properties": {"indice": 0, "texto": "Primer chunk", "texto_contextualizado": "OBJETIVOS\nPrimer chunk", "encabezados": ["OBJETIVOS"], "paginas": [1], "tokens": 5}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:1", "mode": "replace", "properties": {"indice": 1, "texto": "Segundo chunk", "texto_contextualizado": "OBJETIVOS\nSegundo chunk", "encabezados": ["OBJETIVOS"], "paginas": [1, 2], "tokens": 5}}
+  ],
+  "relationships": [
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-conn-sha"}, "target": {"label": "SECCION", "id": "test-conn-sha:s0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:1"}, "properties": {}}
+  ]
+}
+
+### 2 · el JSON: lo de parsing sigue ("documento", "fingerprint_parseo") junto a lo de chunking
+GET {{graph}}/nodes/JSON/test-conn-sha
+
+### 3 · lo que le cuelga
+GET {{graph}}/nodes/JSON/test-conn-sha/relationships
+
+### 4 · chunkear con otra configuración: replace_from borra la sección y los chunks viejos
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "replace_from": {"label": "JSON", "id": "test-conn-sha"},
+  "nodes": [
+    {"label": "JSON", "id": "test-conn-sha", "mode": "merge", "properties": {"chunker": "page", "max_tokens": null, "huella_chunking": "h2", "fragmentos": 1}},
+    {"label": "SECCION", "id": "test-conn-sha:s0", "mode": "replace", "properties": {"orden": 0, "encabezados": []}},
+    {"label": "FRAGMENTOS", "id": "test-conn-sha:0", "mode": "replace", "properties": {"indice": 0, "texto": "Un solo chunk", "texto_contextualizado": "Un solo chunk", "encabezados": [], "paginas": [1, 2], "tokens": 4}}
+  ],
+  "relationships": [
+    {"type": "TIENE_SECCION", "source": {"label": "JSON", "id": "test-conn-sha"}, "target": {"label": "SECCION", "id": "test-conn-sha:s0"}, "properties": {}},
+    {"type": "TIENE_FRAGMENTO", "source": {"label": "SECCION", "id": "test-conn-sha:s0"}, "target": {"label": "FRAGMENTOS", "id": "test-conn-sha:0"}, "properties": {}}
+  ]
+}
+
+### 5 · check: el chunk 1 viejo ya no está (404)
+GET {{graph}}/nodes/FRAGMENTOS/test-conn-sha:1
+
+### 6 · un fallo (OfficialGraph.failed): solo el error; los chunks que tenía se quedan
+POST {{graph}}/batch
+Content-Type: application/json
+
+{
+  "nodes": [{"label": "JSON", "id": "test-conn-sha", "mode": "merge", "properties": {"error_chunking": "ChunkingError: chunks [3] have more than 126 tokens"}}],
+  "relationships": []
+}
+
+### cleanup
+DELETE {{graph}}/nodes/FRAGMENTOS/test-conn-sha:0
+
+###
+DELETE {{graph}}/nodes/SECCION/test-conn-sha:s0
+
+###
+DELETE {{graph}}/nodes/JSON/test-conn-sha

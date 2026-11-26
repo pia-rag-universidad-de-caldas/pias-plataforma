@@ -1,0 +1,72 @@
+# Consultas · preguntas (feature 048): la pregunta se convierte en vector (embeddings), data busca los fragmentos más
+# parecidos y llm responde con ellos como contexto, citándolos ([1], [2]...). Si ninguno pasa min_score, responde que
+# no encontró información y no llama al LLM. Desde la terminal: prueba-chunking ask "pregunta" [--chat ID] [--sources].
+
+@base = http://127.0.0.1:8000/consultas
+
+### health · si embeddings, llm y data responden
+GET {{base}}/health
+
+### search · los fragmentos más parecidos, sin LLM ni guardar nada
+POST {{base}}/search
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa el curso de Bases de Datos?", "k": 5}
+
+### ask · una pregunta en un chat nuevo
+# @name first
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa el curso de Bases de Datos?"}
+
+### ask · seguir la conversación (los últimos turnos van al LLM)
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Y qué porcentaje tiene el proyecto?", "chat": "{{first.response.body.$.chat}}"}
+
+### ask · con otro modelo y temperatura solo para esta pregunta (llm dice qué admite: 422 si no)
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Qué temas tiene el curso?", "k": 3, "llm": {"model": "qwen2.5:7b", "temperature": 0.1}}
+
+### ask · laboratorio: los EXP_CHUNK de un experimento de embeddings terminado; la consulta queda como laboratorio
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Cómo se evalúa?", "against": {"embeddings_experiment": "<id del experimento>"}}
+
+### ask · 422: una clave desconocida
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "a", "index": "otro"}
+
+### ask · 404: un chat que no existe
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "a", "chat": "no-existe"}
+
+### ask · con un documento adjunto (fase 2): parsing lo lee sin guardarlo (POST /parsing/preview), cada trozo busca sus
+# fragmentos parecidos y se juntan por puntaje. Sin `question` se pregunta qué se parece a lo adjunto. La CONSULTA
+# guarda solo el nombre y el tipo. Desde la terminal: prueba-chunking ask "..." --attach plan.pdf
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Qué cursos evalúan así?", "attachments": [{"name": "plan.pdf", "mime": "application/pdf", "content": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA3NiA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDcyIDcyMCBUZCAoRXZhbHVhY2lvbjogZG9zIHBhcmNpYWxlcyB5IHVuIHByb3llY3RvIGZpbmFsKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDM2NyAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQzNwolJUVPRgo="}]}
+
+### ask · con una imagen: un modelo de visión de llm (qwen2.5vl:3b; 503 si no hay ninguno descargado) la describe y esa
+# descripción busca; si el modelo que responde ve imágenes, también la recibe
+POST {{base}}/ask
+Content-Type: application/json
+
+{"question": "¿Qué PIAA tratan esto?", "attachments": [{"name": "foto.png", "mime": "image/png", "content": "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFUlEQVR4nGP8//8/AzbAhFV00EoAAFbUAw037MyjAAAAAElFTkSuQmCC"}]}
+
+### search · solo los fragmentos parecidos a un documento adjunto, sin LLM ni guardar nada
+POST {{base}}/search
+Content-Type: application/json
+
+{"attachments": [{"name": "plan.pdf", "content": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA3NiA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDcyIDcyMCBUZCAoRXZhbHVhY2lvbjogZG9zIHBhcmNpYWxlcyB5IHVuIHByb3llY3RvIGZpbmFsKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDM2NyAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQzNwolJUVPRgo="}]}

@@ -1,0 +1,68 @@
+# Chunking · corridas (feature 045): chunkear con la configuración activa unos sha256, o lo que falta (todo o una
+# página), y reemplazar sus SECCION/FRAGMENTOS oficiales. Normalmente lo llama el pipeline; aquí, a mano. Requiere
+# docling-core y Neo4j. Escribe en el grafo OFICIAL. Un documento nunca se chunkea dos veces con la misma
+# configuración sobre el mismo parseo: se salta. Usa respuestas anteriores (# @name). Docs: /chunking/docs
+
+@chunking = http://127.0.0.1:8000/chunking
+@data = http://127.0.0.1:8000/data
+
+### config · la configuración activa y su huella (fingerprint)
+# @name config
+GET {{chunking}}/config
+
+### data · lo que falta con esa configuración (lo mismo que toma una corrida sin sha256s)
+GET {{data}}/progress/chunking?fingerprint={{config.response.body.fingerprint}}&per_page=5
+
+### runs · simulate de una página de lo que falta: qué se chunkearía, se saltaría y no está parseado (200; no escribe)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"page": 1, "per_page": 2, "simulate": true}
+
+### runs · una página de lo que falta: 202, en cola; la lista se toma cuando le llega el turno
+# @name run
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"page": 1, "per_page": 2}
+
+### runs · estado (repetir hasta finished, partial o failed); `chunked` = lo que el pipeline le pasa a embeddings
+GET {{chunking}}/runs/{{run.response.body.id}}
+
+### runs · otra vez los mismos documentos: se saltan (skipped), no se chunkean dos veces
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"sha256s": {{run.response.body.sha256s}}}
+
+### runs · retomar una partial, failed o interrupted (409 si terminó bien o si la configuración activa cambió)
+POST {{chunking}}/runs/{{run.response.body.id}}/resume
+
+### runs · todo lo que falta
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{}
+
+### runs · sha256s y page a la vez (422)
+POST {{chunking}}/runs
+Content-Type: application/json
+
+{"sha256s": ["{{run.response.body.id}}"], "page": 1}
+
+### data · lo oficial de un documento: sus secciones (y, en cada una, sus FRAGMENTOS)
+GET {{data}}/nodes/JSON/{{run.response.body.sha256s[0]}}/relationships
+
+### runs · todas, también las de sesiones pasadas
+GET {{chunking}}/runs
+
+### runs · sacar de la fila una que espera (409 si ya corre o terminó)
+DELETE {{chunking}}/runs/{{run.response.body.id}}
+
+### runs · cancelar (056): en la fila, sale; la que corre termina el documento actual y queda interrupted, con lo
+# chunkeado guardado. 409 si ya terminó. Después, POST .../resume sigue con su lista
+POST {{chunking}}/runs/{{run.response.body.id}}/cancel
+
+# Una sola vez tras la feature 045, en el navegador de Neo4j: borrar los registros viejos (fijaciones y corridas de
+# antes de la 043), que ya nadie lee:
+#   MATCH (n) WHERE n:CORRIDA_FIJACION OR (n:CORRIDA_CHUNKING AND n.congelada IS NULL) DETACH DELETE n
